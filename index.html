@@ -516,8 +516,22 @@ function handlePCInput(dt) {
 }
 
 // ── タッチUI ──────────────────────────────────
-// タッチデバイス判定（粗いポインタかつタッチ可能）
-const isTouchDevice = window.matchMedia('(pointer: coarse)').matches && 'ontouchstart' in window;
+// タッチデバイス判定
+//   ・粗いポインタ(=指)
+//   ・touch APIが存在
+//   ・画面が縦長か、短辺が900px以下(=スマホ/タブレットのみ)
+//   ・VR専用ブラウザ(Meta Quest など)は除外
+//      → Quest のブラウザは pointer:coarse かつ ontouchstart=true になるため、
+//        UA に OculusBrowser/Quest を含む場合は明示的に弾く
+const ua = navigator.userAgent || '';
+const isVRBrowser = /OculusBrowser|Quest|Pico|Vive/i.test(ua);
+const isSmallScreen = Math.min(window.innerWidth, window.innerHeight) <= 900;
+const isTouchDevice =
+  !isVRBrowser &&
+  isSmallScreen &&
+  window.matchMedia('(pointer: coarse)').matches &&
+  ('ontouchstart' in window);
+
 if (isTouchDevice) {
   document.body.classList.add('touch');
   // スマホでは #controls をデフォルトで折りたたみ、ヘッダータップで開閉
