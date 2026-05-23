@@ -26,6 +26,7 @@
       position: fixed !important;
       bottom: 24px !important; left: 50% !important;
       transform: translateX(-50%) !important;
+      width: 300px !important;
       padding: 14px 40px !important;
       background: rgba(0,200,255,0.15) !important;
       border: 2px solid #00c8ff !important;
@@ -44,8 +45,11 @@
     #credit a { color: inherit; text-decoration: underline; }
 
     /* ── スマホ用タッチUI ─────────────────────── */
-    .touch-ui { display: none; }
-    body.touch .touch-ui { display: block; }
+    /* デフォルトは非表示。ID付き要素の display を確実に上書きするため !important */
+    .touch-ui { display: none !important; }
+    body.touch #swipe-area.touch-ui    { display: block !important; }
+    body.touch #joystick-base.touch-ui { display: block !important; }
+    body.touch #vert-buttons.touch-ui  { display: flex  !important; }
     body.touch #vr-help { display: none; }
 
     /* 全画面の見えないスワイプエリア（視点回転）
