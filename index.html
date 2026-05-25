@@ -59,6 +59,14 @@
     body.touch #vert-buttons.touch-ui  { display: flex  !important; }
     body.touch #vr-help { display: none; }
 
+    /* ── UIパネル類のピンチ拡大を完全阻止 ──
+       縦スクロールは許可するため touch-action: pan-y。
+       スライダー操作は単一指の pointer 制御なので pan-y で問題なし。
+       canvas は別途 touch-action: none を設定済み。 */
+    #controls, #vr-help, #dataset-buttons, #credit, #dbg-panel {
+      touch-action: pan-y;
+    }
+
     /* 全画面の見えないスワイプエリア（視点回転）
        他のUI（スティック・ボタン・パネル）より下のレイヤーに置き、
        それらの要素が pointer を拾えば優先、それ以外は全て視点回転に流す */
@@ -341,7 +349,7 @@
   <div id="controls-header">
     <div id="size-mini">
       <span class="lbl">SIZE</span>
-      <input id="size-mini-slider" type="range" min="0.001" max="0.05" step="0.001" value="0.005">
+      <input id="size-mini-slider" type="range" min="1" max="50" step="1" value="5">
       <span id="size-mini-val">5</span>
     </div>
     <div id="controls-toggle">
@@ -354,10 +362,10 @@
   <div id="controls-body">
   <div id="size-row">
   <div style="margin-bottom:8px; letter-spacing:1px; font-weight:bold;">POINT SIZE</div>
-  <input id="size-slider" type="range" min="0.001" max="0.05" step="0.001" value="0.005"
+  <input id="size-slider" type="range" min="1" max="50" step="1" value="5"
     style="width:160px; accent-color:#00c8ff;">
   <div style="font-family:monospace; margin-top:4px;">
-    <span id="size-val">0.005</span> m
+    <span id="size-val">5</span>
   </div>
   </div>
 
@@ -616,6 +624,33 @@ if (isTouchDevice) {
     if (now - _lastTouchEnd < 350) e.preventDefault();
     _lastTouchEnd = now;
   }, { passive: false });
+
+  // UIパネル類の上でのピンチを確実に阻止
+  // (CSSの touch-action と、document レベルの touchmove だけでは
+  //  iOS/Android の一部環境で漏れることがあるため、直接 listener を付ける)
+  const stopPinch = (e) => {
+    if (e.touches && e.touches.length > 1) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  const attachStopPinch = (el) => {
+    if (!el) return;
+    el.addEventListener('touchstart', stopPinch, { passive: false });
+    el.addEventListener('touchmove',  stopPinch, { passive: false });
+  };
+  // DOM構築済みのものは即時 attach。後から作られる #dbg-panel は MutationObserver で拾う。
+  ['controls', 'vr-help', 'dataset-buttons', 'dbg-panel'].forEach(id => {
+    attachStopPinch(document.getElementById(id));
+  });
+  new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== 1) continue; // Element以外
+        if (node.id === 'dbg-panel') attachStopPinch(node);
+      }
+    }
+  }).observe(document.body, { childList: true });
 }
 
 if (isTouchDevice) {
@@ -630,17 +665,17 @@ if (isTouchDevice) {
     });
   }
   // ミニPOINT SIZEスライダーと本体POINT SIZEスライダーを双方向同期
+  // (スケールは整数 1〜50 で揃えてある。値表示はそのまま整数)
+  // スマホ時の初期値(40)の適用は、本体スライダーのハンドラ登録後に行うため
+  // 本ファイル下部の sizeSlider.addEventListener 直後で処理する。
   const miniSlider = document.getElementById('size-mini-slider');
   const miniVal    = document.getElementById('size-mini-val');
   const mainSlider = document.getElementById('size-slider');
   if (miniSlider && mainSlider) {
-    // 初期値合わせ
-    miniSlider.value = mainSlider.value;
-    miniVal.textContent = (parseFloat(miniSlider.value) * 1000).toFixed(0);
     // ミニ → 本体
     miniSlider.addEventListener('input', () => {
       mainSlider.value = miniSlider.value;
-      miniVal.textContent = (parseFloat(miniSlider.value) * 1000).toFixed(0);
+      miniVal.textContent = miniSlider.value;
       // 本体スライダーの input イベントを発火させて、既存の点サイズ反映ロジックを動かす
       mainSlider.dispatchEvent(new Event('input', { bubbles: true }));
     });
@@ -648,7 +683,7 @@ if (isTouchDevice) {
     mainSlider.addEventListener('input', () => {
       if (document.activeElement !== miniSlider) {
         miniSlider.value = mainSlider.value;
-        miniVal.textContent = (parseFloat(mainSlider.value) * 1000).toFixed(0);
+        miniVal.textContent = mainSlider.value;
       }
     });
   }
@@ -1440,6 +1475,7 @@ function updateDatasetButtons() {
 const DEBUG_MODE = new URLSearchParams(location.search).has('debug');
 if (DEBUG_MODE) {
   const dbg = document.createElement('div');
+  dbg.id = 'dbg-panel';
   dbg.style.cssText = `
     position:fixed; top:80px; left:16px;
     background:rgba(0,0,0,0.85); color:#0f0;
@@ -1527,16 +1563,42 @@ if (DEBUG_MODE) {
 }
 
 // スライダーで点サイズを動的に変更
+// POINT SIZE スライダー
+//   UI表示は整数 1〜50 で統一(PC/スマホ共通スケール)。
+//   内部 pointSize(メートル単位) は UI値 × 0.001 で変換。
 const sizeSlider = document.getElementById('size-slider');
 const sizeVal = document.getElementById('size-val');
+const POINT_SIZE_FACTOR = 0.001;
 sizeSlider.addEventListener('input', () => {
-  pointSize = parseFloat(sizeSlider.value);
-  sizeVal.textContent = pointSize.toFixed(3);
+  const ui = parseInt(sizeSlider.value, 10);
+  pointSize = ui * POINT_SIZE_FACTOR;
+  sizeVal.textContent = String(ui);
   applyPointSize();
 });
 function updateSizeSlider() {
-  sizeSlider.value = pointSize;
-  sizeVal.textContent = pointSize.toFixed(3);
+  const ui = Math.round(pointSize / POINT_SIZE_FACTOR);
+  sizeSlider.value = String(ui);
+  sizeVal.textContent = String(ui);
+  // ミニスライダーがあれば同期(スマホ時のみ存在)
+  const miniSlider = document.getElementById('size-mini-slider');
+  const miniVal    = document.getElementById('size-mini-val');
+  if (miniSlider && miniVal) {
+    miniSlider.value = String(ui);
+    miniVal.textContent = String(ui);
+  }
+}
+
+// スマホ時の初期値: 40 (PC は HTML 既定値の 5 のまま)
+if (isTouchDevice) {
+  sizeSlider.value = '40';
+  sizeSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  // ミニスライダー表示も更新(updateSizeSliderと同等の処理)
+  const miniSlider = document.getElementById('size-mini-slider');
+  const miniVal    = document.getElementById('size-mini-val');
+  if (miniSlider && miniVal) {
+    miniSlider.value = '40';
+    miniVal.textContent = '40';
+  }
 }
 
 // LOD errorTarget スライダー
