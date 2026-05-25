@@ -63,7 +63,7 @@
        縦スクロールは許可するため touch-action: pan-y。
        スライダー操作は単一指の pointer 制御なので pan-y で問題なし。
        canvas は別途 touch-action: none を設定済み。 */
-    #controls, #vr-help, #dataset-buttons, #credit, #dbg-panel {
+    #controls, #vr-help, #dataset-switch, #credit, #dbg-panel, button.three-vr {
       touch-action: pan-y;
     }
 
@@ -137,14 +137,16 @@
       display: none;
     }
 
-    /* スマホ時: ヘッダーを表示し、本体は閉じた状態を既定にする */
+    /* スマホ時: ヘッダーを表示し、本体は閉じた状態を既定にする
+       上端ぎりぎりまで寄せて表示エリアを最大化。右端配置のため
+       左寄りの #dataset-switch とは横方向で被らない。 */
     body.touch #controls {
-      top: 12px;
-      right: 12px;
+      top: 4px;
+      right: 4px;
       padding: 0;
       font-size: 11px;
       width: auto;
-      max-width: calc(100vw - 24px);
+      max-width: calc(100vw - 8px);
       background: rgba(0,0,0,0.4);
     }
     body.touch #controls-header {
@@ -286,11 +288,16 @@
       animation: dataset-pulse 1s ease-in-out infinite;
     }
 
-    /* スマホ時：データセットUIが他UIと重ならないようサイズ調整 */
+    /* スマホ時：データセットUIが他UIと重ならないようサイズ調整
+       および画面端ぎりぎりまで上に寄せて表示エリアを最大化。
+       右上のコントロールパネル(SIZEミニUI込で約190px)と被らないよう
+       max-width を制限し、内部の横スクロールに任せる。 */
     body.touch #dataset-switch {
-      max-width: calc(100vw - 32px);
+      top: 4px;
+      left: 4px;
+      max-width: calc(100vw - 200px);
       font-size: 11px;
-      padding: 6px 8px;
+      padding: 4px 6px;
     }
     body.touch .dataset-btn {
       padding: 6px 10px;
@@ -639,15 +646,27 @@ if (isTouchDevice) {
     el.addEventListener('touchstart', stopPinch, { passive: false });
     el.addEventListener('touchmove',  stopPinch, { passive: false });
   };
-  // DOM構築済みのものは即時 attach。後から作られる #dbg-panel は MutationObserver で拾う。
-  ['controls', 'vr-help', 'dataset-buttons', 'dbg-panel'].forEach(id => {
+  // DOM構築済みのものは即時 attach。後から作られる #dbg-panel と
+  // VRButton (button.three-vr) は MutationObserver で拾う。
+  ['controls', 'vr-help', 'dataset-switch', 'credit', 'dbg-panel'].forEach(id => {
     attachStopPinch(document.getElementById(id));
   });
+  // 既に存在している VRButton も取得して attach (createButtonが先に走っている場合)
+  document.querySelectorAll('button.three-vr').forEach(attachStopPinch);
   new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType !== 1) continue; // Element以外
         if (node.id === 'dbg-panel') attachStopPinch(node);
+        // three.jsのVRButtonは "three-vr" クラスが付いた button 要素として後から
+        // body直下に追加されるため、ここで拾って attach する
+        if (node.matches && node.matches('button.three-vr')) {
+          attachStopPinch(node);
+        }
+        // 子孫にVRボタンが含まれている可能性もカバー
+        if (node.querySelectorAll) {
+          node.querySelectorAll('button.three-vr').forEach(attachStopPinch);
+        }
       }
     }
   }).observe(document.body, { childList: true });
@@ -1588,16 +1607,16 @@ function updateSizeSlider() {
   }
 }
 
-// スマホ時の初期値: 40 (PC は HTML 既定値の 5 のまま)
+// スマホ時の初期値: 30 (PC は HTML 既定値の 5 のまま)
 if (isTouchDevice) {
-  sizeSlider.value = '40';
+  sizeSlider.value = '30';
   sizeSlider.dispatchEvent(new Event('input', { bubbles: true }));
   // ミニスライダー表示も更新(updateSizeSliderと同等の処理)
   const miniSlider = document.getElementById('size-mini-slider');
   const miniVal    = document.getElementById('size-mini-val');
   if (miniSlider && miniVal) {
-    miniSlider.value = '40';
-    miniVal.textContent = '40';
+    miniSlider.value = '30';
+    miniVal.textContent = '30';
   }
 }
 
