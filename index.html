@@ -1444,6 +1444,9 @@ function loadTileset(id) {
       const rotatedCenter = center.clone().applyQuaternion(rotQuat);
       // タイル群の境界球中心をワールド原点に揃える(タイルの配置自体は固定)
       tiles.group.position.copy(rotatedCenter).multiplyScalar(-1);
+      // WORLD SCALE 適用前の base position を覚えておく
+      // (applyWorldScale で dolly を中心にスケール変換するための基準点)
+      tilesBasePosition.copy(tiles.group.position);
 
       // ── CSVの値はカメラ初期位置(x,y,z)と yaw(度) を表す ──
       // デバッグモードで通常移動した時に表示されるxyz/yawと、
@@ -1669,14 +1672,24 @@ if (isTouchDevice) {
 // tiles.group のスケールを変えることで、見た目の世界の大きさを変える。
 // 1.0=実寸(=ECEFのメートル単位そのまま)。
 // 数値を上げるとVRなどで「世界が大きく感じる」ようになる(=自分が縮んだ視点)。
-// カメラ(dolly)位置は変えないので、視点の位置は固定。
+//
+// 重要: 単純に scale.setScalar() だけだと、原点を中心に拡大されて
+// 目の前にあったタイルが遠ざかってしまう。
+// そこで「カメラ(dolly)位置を中心とした相似変換」になるよう
+// position も同時に補正する:
+//   new_pos = dolly.position + scale * (base_pos - dolly.position)
+// base_pos は scale=1.0 時のタイル群位置 (load-tile-set で保存)。
 let worldScale = 1.0;
+const tilesBasePosition = new THREE.Vector3();
+const _scaleTmp = new THREE.Vector3();
 function applyWorldScale() {
-  if (tiles && tiles.group) {
-    tiles.group.scale.setScalar(worldScale);
-    // matrixWorld を即時更新して、tiles.update() の LOD評価に反映させる
-    tiles.group.updateMatrixWorld(true);
-  }
+  if (!tiles || !tiles.group) return;
+  tiles.group.scale.setScalar(worldScale);
+  // dolly中心の相似変換: new = dolly + s * (base - dolly)
+  _scaleTmp.copy(tilesBasePosition).sub(dolly.position).multiplyScalar(worldScale).add(dolly.position);
+  tiles.group.position.copy(_scaleTmp);
+  // matrixWorld を即時更新して、tiles.update() の LOD評価に反映させる
+  tiles.group.updateMatrixWorld(true);
 }
 const scaleSlider = document.getElementById('scale-slider');
 const scaleVal    = document.getElementById('scale-val');
