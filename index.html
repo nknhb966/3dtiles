@@ -62,8 +62,10 @@
     /* ── UIパネル類のピンチ拡大を完全阻止 ──
        縦スクロールは許可するため touch-action: pan-y。
        スライダー操作は単一指の pointer 制御なので pan-y で問題なし。
-       canvas は別途 touch-action: none を設定済み。 */
-    #controls, #vr-help, #dataset-switch, #credit, #dbg-panel, button.three-vr {
+       canvas は別途 touch-action: none を設定済み。
+       注: VRボタン(button.three-vr) はピンチ阻止の対象外とし、
+           ブラウザ標準の挙動に任せる。 */
+    #controls, #vr-help, #dataset-switch, #credit, #dbg-panel {
       touch-action: pan-y;
     }
 
@@ -137,11 +139,11 @@
       display: none;
     }
 
-    /* スマホ時: ヘッダーを表示し、本体は閉じた状態を既定にする
-       上端ぎりぎりまで寄せて表示エリアを最大化。右端配置のため
-       左寄りの #dataset-switch とは横方向で被らない。 */
+    /* スマホ時: ヘッダーを表示し、本体は閉じた状態を既定にする。
+       top は JS で #dataset-switch.bottom + 4px に動的設定する。
+       (ここの値は JS 実行前の一瞬の見え方のための初期値) */
     body.touch #controls {
-      top: 4px;
+      top: 48px;
       right: 4px;
       padding: 0;
       font-size: 11px;
@@ -288,16 +290,15 @@
       animation: dataset-pulse 1s ease-in-out infinite;
     }
 
-    /* スマホ時：データセットUIが他UIと重ならないようサイズ調整
-       および画面端ぎりぎりまで上に寄せて表示エリアを最大化。
-       右上のコントロールパネル(SIZEミニUI込で約190px)と被らないよう
-       max-width を制限し、内部の横スクロールに任せる。 */
+    /* スマホ時：データセットUIが他UIと重ならないようサイズ調整。
+       上端ぎりぎり(top:4px)に寄せて表示エリアを最大化、
+       横方向は元のレイアウトを維持して横スクロールしやすさを保つ。 */
     body.touch #dataset-switch {
       top: 4px;
-      left: 4px;
-      max-width: calc(100vw - 200px);
+      left: 16px;
+      max-width: calc(100vw - 32px);
       font-size: 11px;
-      padding: 4px 6px;
+      padding: 6px 8px;
     }
     body.touch .dataset-btn {
       padding: 6px 10px;
@@ -646,27 +647,17 @@ if (isTouchDevice) {
     el.addEventListener('touchstart', stopPinch, { passive: false });
     el.addEventListener('touchmove',  stopPinch, { passive: false });
   };
-  // DOM構築済みのものは即時 attach。後から作られる #dbg-panel と
-  // VRButton (button.three-vr) は MutationObserver で拾う。
+  // DOM構築済みのものは即時 attach。後から作られる #dbg-panel は MutationObserver で拾う。
+  // 注: VRボタン(button.three-vr) はピンチ阻止対象から除外。
+  //     CSSの touch-action 指定もしておらず、ブラウザ標準動作に任せる。
   ['controls', 'vr-help', 'dataset-switch', 'credit', 'dbg-panel'].forEach(id => {
     attachStopPinch(document.getElementById(id));
   });
-  // 既に存在している VRButton も取得して attach (createButtonが先に走っている場合)
-  document.querySelectorAll('button.three-vr').forEach(attachStopPinch);
   new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType !== 1) continue; // Element以外
         if (node.id === 'dbg-panel') attachStopPinch(node);
-        // three.jsのVRButtonは "three-vr" クラスが付いた button 要素として後から
-        // body直下に追加されるため、ここで拾って attach する
-        if (node.matches && node.matches('button.three-vr')) {
-          attachStopPinch(node);
-        }
-        // 子孫にVRボタンが含まれている可能性もカバー
-        if (node.querySelectorAll) {
-          node.querySelectorAll('button.three-vr').forEach(attachStopPinch);
-        }
       }
     }
   }).observe(document.body, { childList: true });
@@ -683,9 +674,26 @@ if (isTouchDevice) {
       controlsEl.classList.toggle('collapsed');
     });
   }
+
+  // ── #controls の top を #dataset-switch.bottom + 4px に動的設定 ──
+  // データセットボタンの増減・画面回転・リサイズに自動追従。
+  const datasetSwitchEl = document.getElementById('dataset-switch');
+  function positionControlsBelowDatasetSwitch() {
+    if (!controlsEl || !datasetSwitchEl) return;
+    const rect = datasetSwitchEl.getBoundingClientRect();
+    // bottom はビューポート上端からのオフセット。そのまま top に使える。
+    controlsEl.style.top = `${rect.bottom + 4}px`;
+  }
+  // 初回(ボタン未生成時)・リサイズ・データセットボタン生成後 すべてに対応
+  positionControlsBelowDatasetSwitch();
+  window.addEventListener('resize', positionControlsBelowDatasetSwitch);
+  if (datasetSwitchEl && 'ResizeObserver' in window) {
+    new ResizeObserver(positionControlsBelowDatasetSwitch).observe(datasetSwitchEl);
+  }
+
   // ミニPOINT SIZEスライダーと本体POINT SIZEスライダーを双方向同期
   // (スケールは整数 1〜50 で揃えてある。値表示はそのまま整数)
-  // スマホ時の初期値(40)の適用は、本体スライダーのハンドラ登録後に行うため
+  // スマホ時の初期値(30)の適用は、本体スライダーのハンドラ登録後に行うため
   // 本ファイル下部の sizeSlider.addEventListener 直後で処理する。
   const miniSlider = document.getElementById('size-mini-slider');
   const miniVal    = document.getElementById('size-mini-val');
