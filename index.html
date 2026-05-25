@@ -60,13 +60,17 @@
     body.touch #vr-help { display: none; }
 
     /* ── UIパネル類のピンチ拡大を完全阻止 ──
-       縦スクロールは許可するため touch-action: pan-y。
-       スライダー操作は単一指の pointer 制御なので pan-y で問題なし。
+       スライダー類は縦並びで縦スクロール想定なので pan-y、
+       #dataset-switch はボタン横並びで横スクロール想定なので pan-x。
+       いずれも 2軸スクロール(=ピンチ)は禁止される。
        canvas は別途 touch-action: none を設定済み。
        注: VRボタン(button.three-vr) はピンチ阻止の対象外とし、
            ブラウザ標準の挙動に任せる。 */
-    #controls, #vr-help, #dataset-switch, #credit, #dbg-panel {
+    #controls, #vr-help, #credit, #dbg-panel {
       touch-action: pan-y;
+    }
+    #dataset-switch {
+      touch-action: pan-x;
     }
 
     /* 全画面の見えないスワイプエリア（視点回転）
