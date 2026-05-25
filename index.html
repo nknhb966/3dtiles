@@ -294,6 +294,15 @@
       animation: dataset-pulse 1s ease-in-out infinite;
     }
 
+    /* CSV読込失敗時の警告メッセージ */
+    .dataset-error {
+      padding: 4px 8px;
+      color: #ff6b6b;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
     /* スマホ時：データセットUIが他UIと重ならないようサイズ調整。
        上端ぎりぎり(top:4px)に寄せて表示エリアを最大化、
        横方向は元のレイアウトを維持して横スクロールしやすさを保つ。 */
@@ -462,27 +471,20 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 console.log('Three.js r' + THREE.REVISION + ' / 3D Tiles VR Viewer');
 
 // データセット定義
-// 外部CSV (datasets.csv) から読み込む。読み込み失敗時は FALLBACK_DATASETS を使う。
+// 外部CSV (datasets.csv) から読み込む。読み込み失敗時はエラー表示を出し、データセットボタンは生成しない。
 // CSV列: id, label, xOffset, yOffset, zOffset, yawOffset
 //   id        : タイルセットURLのパス
 //   label     : ボタン表示名
-//   xOffset   : X方向追加オフセット(m)
-//   yOffset   : Y方向追加オフセット(m)
-//   zOffset   : Z方向追加オフセット(m)
-//   yawOffset : Y軸まわりの追加回転(度)
+//   xOffset   : カメラ初期X座標(m)
+//   yOffset   : カメラ初期Y座標(m)
+//   zOffset   : カメラ初期Z座標(m)
+//   yawOffset : カメラ初期Y軸まわり回転(度)
 const TILESET_BASE = 'https://gsvrg.ipri.aist.go.jp/3ddb_demo/3dtiles';
 const DATASETS_CSV_URL = './datasets.csv';
 const DEFAULT_DATASET = '1886';
 
-// CSV読み込み失敗時のフォールバック定義
-const FALLBACK_DATASETS = [
-  { id: '1881', label: '武生公会堂記念館', xOffset: -3, yOffset: 5, zOffset: 0, yawOffset: 180 },
-  { id: '1882', label: '越前市役所', xOffset: 12, yOffset: 5, zOffset: 18, yawOffset: 80 },
-  { id: '1886', label: '大瀧神社', xOffset: 0, yOffset: 12, zOffset: 0, yawOffset: 180 },
-  { id: '1889', label: '蔵の辻', xOffset: 0, yOffset: 9, zOffset: 0, yawOffset: 180 },
-];
-
-let DATASETS = FALLBACK_DATASETS;          // CSVロード前のデフォルト
+// CSV読込後にここに入る。読込前/失敗時は空配列のまま。
+let DATASETS = [];
 const tilesetUrl = (id) => `${TILESET_BASE}/${id}/tileset.json`;
 const getDataset = (id) => DATASETS.find(d => d.id === id);
 
@@ -515,6 +517,10 @@ function parseDatasetsCSV(text) {
   }).filter(d => d.id);
 }
 
+// CSV読込結果のうち、ロード失敗/空の原因を保持する(UI表示用)
+// null: 成功 / 文字列: 失敗の理由
+let datasetsLoadError = null;
+
 async function loadDatasetsCSV() {
   try {
     const res = await fetch(DATASETS_CSV_URL);
@@ -523,12 +529,17 @@ async function loadDatasetsCSV() {
     const parsed = parseDatasetsCSV(text);
     if (parsed.length > 0) {
       DATASETS = parsed;
+      datasetsLoadError = null;
       console.log(`データセットCSV読込完了: ${parsed.length}件`);
     } else {
-      console.warn('CSV解析結果が空。フォールバック定義を使います');
+      DATASETS = [];
+      datasetsLoadError = 'CSV解析結果が空です(ヘッダ・データ行を確認してください)';
+      console.warn(datasetsLoadError);
     }
   } catch (e) {
-    console.warn('CSV読込失敗。フォールバック定義を使います:', e.message);
+    DATASETS = [];
+    datasetsLoadError = `datasets.csv 読込失敗: ${e.message}`;
+    console.warn(datasetsLoadError);
   }
 }
 
@@ -1471,6 +1482,14 @@ const datasetSwitch = document.getElementById('dataset-switch');
 
 function buildDatasetButtons() {
   datasetSwitch.innerHTML = '';
+  if (datasetsLoadError) {
+    // CSV読込失敗時: エラーメッセージを #dataset-switch 内に赤系で表示
+    const errEl = document.createElement('div');
+    errEl.className = 'dataset-error';
+    errEl.textContent = `⚠ ${datasetsLoadError}`;
+    datasetSwitch.appendChild(errEl);
+    return;
+  }
   DATASETS.forEach(({ id, label }) => {
     const btn = document.createElement('button');
     btn.className = 'dataset-btn';
