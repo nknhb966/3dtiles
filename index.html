@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>3D Tiles VR Viewer</title>
 
   <script type="importmap">
@@ -19,8 +19,15 @@
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      /* iOS Safariのダブルタップズーム/ピンチズームを抑制 */
+      touch-action: manipulation;
+      -ms-touch-action: manipulation;
+      -webkit-text-size-adjust: 100%;
+      -webkit-tap-highlight-color: transparent;
+    }
     body { background: #0a0c10; font-family: sans-serif; overflow: hidden; }
-    canvas { display: block; }
+    canvas { display: block; touch-action: none; }
 
     button.three-vr {
       position: fixed !important;
@@ -124,32 +131,66 @@
 
     /* スマホ時: ヘッダーを表示し、本体は閉じた状態を既定にする */
     body.touch #controls {
-      top: 16px;
-      right: 16px;
+      top: 12px;
+      right: 12px;
       padding: 0;
       font-size: 11px;
       width: auto;
-      max-width: calc(100vw - 32px);
+      max-width: calc(100vw - 24px);
+      background: rgba(0,0,0,0.4);
     }
     body.touch #controls-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 8px 12px;
-      cursor: pointer;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 6px 8px;
       user-select: none;
       -webkit-user-select: none;
-      letter-spacing: 1px;
-      font-weight: bold;
-      font-size: 12px;
+      font-size: 11px;
       color: #00c8ff;
     }
-    body.touch #controls-header .chev {
+    /* ミニPOINT SIZEスライダー（折りたたみ時も操作可） */
+    body.touch #size-mini {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 1px;
+      font-weight: bold;
+    }
+    body.touch #size-mini .lbl {
       font-size: 10px;
+      opacity: 0.85;
+    }
+    body.touch #size-mini #size-mini-slider {
+      width: 80px;
+      accent-color: #00c8ff;
+      vertical-align: middle;
+    }
+    body.touch #size-mini #size-mini-val {
+      font-family: monospace;
+      font-size: 10px;
+      min-width: 18px;
+      text-align: right;
+    }
+    /* 本体開閉トグル（タップ領域） */
+    body.touch #controls-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      cursor: pointer;
+      font-weight: bold;
+      border-left: 1px solid rgba(0,200,255,0.25);
+    }
+    body.touch #controls-toggle .lbl {
+      font-size: 13px;
+    }
+    body.touch #controls-toggle .chev {
+      font-size: 9px;
       transition: transform 0.2s ease;
     }
-    body.touch #controls.collapsed #controls-header .chev {
+    body.touch #controls.collapsed #controls-toggle .chev {
       transform: rotate(-90deg);
     }
     body.touch #controls-body {
@@ -159,6 +200,11 @@
       -webkit-overflow-scrolling: touch;
     }
     body.touch #controls.collapsed #controls-body {
+      display: none;
+    }
+    /* 折りたたみ展開時は、本体内の重複POINT SIZE項目を非表示
+       (常時表示のミニUIで操作するため) */
+    body.touch #controls-body #size-row {
       display: none;
     }
     /* スマホ時はスライダー幅も画面に合わせて縮める */
@@ -289,19 +335,30 @@
   z-index: 100;
   backdrop-filter: blur(8px);
 ">
-  <!-- ヘッダー（スマホ時のみ表示、タップで本体開閉） -->
+  <!-- ヘッダー（スマホ時のみ表示）-->
+  <!-- 左: POINT SIZE のミニスライダー(タップ拡張時もそのまま操作可) -->
+  <!-- 右: 本体の開閉トグル -->
   <div id="controls-header">
-    <span>CONTROLS</span>
-    <span class="chev">▼</span>
+    <div id="size-mini">
+      <span class="lbl">SIZE</span>
+      <input id="size-mini-slider" type="range" min="0.001" max="0.05" step="0.001" value="0.005">
+      <span id="size-mini-val">5</span>
+    </div>
+    <div id="controls-toggle">
+      <span class="lbl">⚙</span>
+      <span class="chev">▼</span>
+    </div>
   </div>
 
   <!-- 本体 -->
   <div id="controls-body">
+  <div id="size-row">
   <div style="margin-bottom:8px; letter-spacing:1px; font-weight:bold;">POINT SIZE</div>
   <input id="size-slider" type="range" min="0.001" max="0.05" step="0.001" value="0.005"
     style="width:160px; accent-color:#00c8ff;">
   <div style="font-family:monospace; margin-top:4px;">
     <span id="size-val">0.005</span> m
+  </div>
   </div>
 
   <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">LOD ERROR TARGET</div>
@@ -471,6 +528,11 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
+// 'local-floor' だと床を原点とし、HMDの実物理身長分カメラが浮き上がる(=
+//  PC/スマホで設定した dolly.y より VR の見え高さが高くなる)。
+// 'local' は HMDの初期位置を原点とするため、dolly.position.y がそのまま目線高さになり、
+// PC/スマホ表示とVR表示の高さが揃う。
+renderer.xr.setReferenceSpaceType('local');
 document.body.appendChild(renderer.domElement);
 
 // PCキーボード入力状態
@@ -536,15 +598,58 @@ const isTouchDevice =
   window.matchMedia('(pointer: coarse)').matches &&
   ('ontouchstart' in window);
 
+// ── スマホでのページ拡大操作を全面禁止 ──
+// (ダブルタップズーム / ピンチズーム / iOSのgesture系)
+if (isTouchDevice) {
+  // iOS Safari の独自ジェスチャ
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => {
+    document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+  });
+  // 2本指タッチによるピンチ防止 (canvas 以外で発生したものを抑止)
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+  // 300ms以内の連続タップ(ダブルタップ)による拡大を保険として無効化
+  let _lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - _lastTouchEnd < 350) e.preventDefault();
+    _lastTouchEnd = now;
+  }, { passive: false });
+}
+
 if (isTouchDevice) {
   document.body.classList.add('touch');
-  // スマホでは #controls をデフォルトで折りたたみ、ヘッダータップで開閉
+  // スマホでは #controls をデフォルトで折りたたみ、トグルボタンで開閉
   const controlsEl = document.getElementById('controls');
-  const controlsHeader = document.getElementById('controls-header');
-  if (controlsEl && controlsHeader) {
+  const controlsToggle = document.getElementById('controls-toggle');
+  if (controlsEl && controlsToggle) {
     controlsEl.classList.add('collapsed');
-    controlsHeader.addEventListener('click', () => {
+    controlsToggle.addEventListener('click', () => {
       controlsEl.classList.toggle('collapsed');
+    });
+  }
+  // ミニPOINT SIZEスライダーと本体POINT SIZEスライダーを双方向同期
+  const miniSlider = document.getElementById('size-mini-slider');
+  const miniVal    = document.getElementById('size-mini-val');
+  const mainSlider = document.getElementById('size-slider');
+  if (miniSlider && mainSlider) {
+    // 初期値合わせ
+    miniSlider.value = mainSlider.value;
+    miniVal.textContent = (parseFloat(miniSlider.value) * 1000).toFixed(0);
+    // ミニ → 本体
+    miniSlider.addEventListener('input', () => {
+      mainSlider.value = miniSlider.value;
+      miniVal.textContent = (parseFloat(miniSlider.value) * 1000).toFixed(0);
+      // 本体スライダーの input イベントを発火させて、既存の点サイズ反映ロジックを動かす
+      mainSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // 本体 → ミニ (展開して本体を動かしたとき向け)
+    mainSlider.addEventListener('input', () => {
+      if (document.activeElement !== miniSlider) {
+        miniSlider.value = mainSlider.value;
+        miniVal.textContent = (parseFloat(mainSlider.value) * 1000).toFixed(0);
+      }
     });
   }
 }
@@ -839,7 +944,8 @@ function handleVRInput(dt) {
 
     if (hand === 'right') {
       // 右スティック左右：ヨー回転（上下は使わない）
-      targetYawVel -= stickX * TURN_SPEED;
+      // VRでは PC のキー操作より速めに回したいので 1.5倍にする
+      targetYawVel -= stickX * TURN_SPEED * 1.5;
 
       // 右手 A=buttons[4]:下降, B=buttons[5]:上昇
       if (buttons[4] && buttons[4].pressed) targetVel.y -= VERT_SPEED;
@@ -1200,6 +1306,9 @@ function loadTileset(id) {
   }
 
   loadingDataset = id;
+  // データセット切替時はカメラ位置・向きをそのデータセットの初期位置にリセット
+  // (load-tile-set ハンドラ内の "cameraInitialized==false" 経路を再度通すため)
+  cameraInitialized = false;
   updateDatasetButtons();
 
   console.log(`タイルセット読込中: ${id}`);
@@ -1246,43 +1355,23 @@ function loadTileset(id) {
       tiles.group.quaternion.copy(rotQuat);
 
       const rotatedCenter = center.clone().applyQuaternion(rotQuat);
-      // 境界球中心をワールド原点に + データセット個別の補正を適用
-      const ds = getDataset(id);
-      const xOff   = ds ? ds.xOffset   : 0;
-      const yOff   = ds ? ds.yOffset   : 0;
-      const zOff   = ds ? ds.zOffset   : 0;
-      const yawDeg = ds ? ds.yawOffset : 0;
-
+      // タイル群の境界球中心をワールド原点に揃える(タイルの配置自体は固定)
       tiles.group.position.copy(rotatedCenter).multiplyScalar(-1);
-      // ベース位置・姿勢（CSVオフセット適用前）を保存（デバッグ表示用）
-      baseTransformByDataset.set(id, {
-        pos: tiles.group.position.clone(),
-        quat: tiles.group.quaternion.clone(),
-      });
 
-      // 個別オフセット適用
-      tiles.group.position.x += xOff;
-      tiles.group.position.y += yOff;
-      tiles.group.position.z += zOff;
+      // ── CSVの値はカメラ初期位置(x,y,z)と yaw(度) を表す ──
+      // デバッグモードで通常移動した時に表示されるxyz/yawと、
+      // CSVに書く値が完全に一致する設計。
+      const ds = getDataset(id);
+      const camX   = ds ? ds.xOffset   : 0;
+      const camY   = ds ? ds.yOffset   : 1.6;
+      const camZ   = ds ? ds.zOffset   : (r * 0.4);
+      const camYaw = ds ? ds.yawOffset : 0;
 
-      // 既存の方向補正 quaternion に yawOffset(度) を上乗せ
-      if (yawDeg !== 0) {
-        const yawQuat = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 1, 0),
-          THREE.MathUtils.degToRad(yawDeg)
-        );
-        // 親方向の補正(rotQuat) を適用してから、ワールドY軸まわりの追加回転
-        tiles.group.quaternion.premultiply(yawQuat);
-      }
-
-      // 初回ロード時のみカメラ位置をリセット（切替時は視点を維持）
+      // 切替時/初回とも、対象データセットのCSV値に従ってカメラを配置
       if (!cameraInitialized) {
-        const EYE_HEIGHT = 1.6;
-        const VIEW_DISTANCE = r * 0.4;
-        // データ正面の向き調整はCSVのyawOffsetが担当するので、
-        // dolly側は中立（-Z向き）から始める。
-        dolly.position.set(0, EYE_HEIGHT, VIEW_DISTANCE);
-        dolly.rotation.set(0, 0, 0);
+        dolly.position.set(camX, camY, camZ);
+        // dollyの向きはY軸まわり(yaw)のみを設定。pitch/rollはゼロ。
+        dolly.rotation.set(0, THREE.MathUtils.degToRad(camYaw), 0);
         cameraInitialized = true;
       }
 
@@ -1292,7 +1381,7 @@ function loadTileset(id) {
 
       grid.scale.setScalar(Math.max(1, r / 50));
 
-      console.log(`タイル ${id} 読込完了 (r=${r.toFixed(1)}m, offset=[${xOff},${yOff},${zOff}], yaw=${yawDeg}°)`);
+      console.log(`タイル ${id} 読込完了 (r=${r.toFixed(1)}m, cam=[${camX},${camY},${camZ}], yaw=${camYaw}°)`);
     }
 
     currentDataset = id;
@@ -1334,9 +1423,6 @@ function updateDatasetButtons() {
   });
 }
 
-// 各タイルセットの "オフセット適用前のbase position" と "yawOffset適用前のbase quaternion" を保存
-const baseTransformByDataset = new Map();
-
 // CSVを読み込んでからUIを構築 & 初期ロード
 (async () => {
   await loadDatasetsCSV();
@@ -1348,7 +1434,9 @@ const baseTransformByDataset = new Map();
   if (startId) loadTileset(startId);
 })();
 
-// ── デバッグモード: URLに ?debug=1 を付けるとオフセット調整UIが出る ──
+// ── デバッグモード: URLに ?debug=1 を付けると現在カメラ位置/向きを表示 ──
+// 通常の WASD / 矢印キー で視点移動/回転すると、リアルタイムに更新される。
+// 表示される x, y, z, yaw はそのまま datasets.csv に貼り付け可能。
 const DEBUG_MODE = new URLSearchParams(location.search).has('debug');
 if (DEBUG_MODE) {
   const dbg = document.createElement('div');
@@ -1364,105 +1452,75 @@ if (DEBUG_MODE) {
     <div><b>DEBUG MODE</b> (?debug=1)</div>
     <div>現在: <span id="dbg-id">-</span></div>
     <div>x=<span id="dbg-x">0</span> y=<span id="dbg-y">0</span> z=<span id="dbg-z">0</span> yaw=<span id="dbg-yaw">0</span>°</div>
-    <div style="margin-top:6px; color:#9f9;">操作: Alt+キー（Shift併用で×10倍）</div>
-    <div>Alt+A/D: X &nbsp; Alt+J/K: Y &nbsp; Alt+W/S: Z</div>
-    <div>Alt+Q/E: Yaw &nbsp; Alt+R: Reset &nbsp; Alt+C: Copy CSV</div>
-    <div style="margin-top:4px; color:#9f9;">確定値を datasets.csv に反映してください</div>
+    <div style="margin-top:6px; color:#9f9;">
+      WASD/矢印キーで視点を動かし、希望の見え方になったら下記値を CSV に貼り付けてください
+    </div>
+    <div style="margin-top:4px;">
+      <span style="color:#9f9;">CSV行:</span>
+      <span id="dbg-csv" style="color:#fff; user-select:all;">-</span>
+    </div>
+    <div style="margin-top:4px; color:#9f9;">R: CSVのデフォルト値にリセット &nbsp; C: CSV行をコピー</div>
   `;
   document.body.appendChild(dbg);
-  const dbgId  = document.getElementById('dbg-id');
-  const dbgX   = document.getElementById('dbg-x');
-  const dbgY   = document.getElementById('dbg-y');
-  const dbgZ   = document.getElementById('dbg-z');
-  const dbgYaw = document.getElementById('dbg-yaw');
+  const dbgId   = document.getElementById('dbg-id');
+  const dbgX    = document.getElementById('dbg-x');
+  const dbgY    = document.getElementById('dbg-y');
+  const dbgZ    = document.getElementById('dbg-z');
+  const dbgYaw  = document.getElementById('dbg-yaw');
+  const dbgCsv  = document.getElementById('dbg-csv');
 
-  // ベース姿勢から現在値の差分を計算
-  function currentOffsets() {
+  // dolly の現在のx/y/z と yaw(度) を取得
+  // yaw は -180〜+180 に正規化(CSV値とそのまま比較しやすいように)
+  function normalizeDeg(d) {
+    let v = ((d + 180) % 360 + 360) % 360 - 180;
+    return v;
+  }
+  function currentCam() {
     const id = currentDataset ?? loadingDataset;
-    if (!tiles || id == null || !baseTransformByDataset.has(id)) return null;
-    const base = baseTransformByDataset.get(id);
-    const dx = tiles.group.position.x - base.pos.x;
-    const dy = tiles.group.position.y - base.pos.y;
-    const dz = tiles.group.position.z - base.pos.z;
-    // yawの差分: base.quat * yawQ = current.quat → yawQ = base.quat.invert() * current.quat
-    const invBase = base.quat.clone().invert();
-    const diffQ = invBase.multiply(tiles.group.quaternion);
-    // diffQ は ワールドY軸まわりの回転 (premultiply で適用したので)
-    // と思いきや、座標系の都合で .x .y .z .w から角度抽出は注意。
-    // Eulerで取り出す
-    const e = new THREE.Euler().setFromQuaternion(diffQ, 'YXZ');
-    const yawDeg = THREE.MathUtils.radToDeg(e.y);
-    return { id, dx, dy, dz, yawDeg };
+    const x = dolly.position.x;
+    const y = dolly.position.y;
+    const z = dolly.position.z;
+    const yawDeg = normalizeDeg(THREE.MathUtils.radToDeg(dolly.rotation.y));
+    return { id, x, y, z, yawDeg };
   }
 
   function refreshDebug() {
-    const o = currentOffsets();
-    if (o) {
-      dbgId.textContent  = o.id;
-      dbgX.textContent   = o.dx.toFixed(2);
-      dbgY.textContent   = o.dy.toFixed(2);
-      dbgZ.textContent   = o.dz.toFixed(2);
-      dbgYaw.textContent = o.yawDeg.toFixed(1);
-    } else {
-      dbgId.textContent = '-';
-      dbgX.textContent = dbgY.textContent = dbgZ.textContent = dbgYaw.textContent = '-';
-    }
+    const o = currentCam();
+    dbgId.textContent  = o.id ?? '-';
+    dbgX.textContent   = o.x.toFixed(2);
+    dbgY.textContent   = o.y.toFixed(2);
+    dbgZ.textContent   = o.z.toFixed(2);
+    dbgYaw.textContent = o.yawDeg.toFixed(1);
+    const ds = o.id != null ? getDataset(o.id) : null;
+    const label = ds ? ds.label : '';
+    dbgCsv.textContent = o.id != null
+      ? `${o.id},${label},${o.x.toFixed(2)},${o.y.toFixed(2)},${o.z.toFixed(2)},${o.yawDeg.toFixed(1)}`
+      : '-';
   }
-  setInterval(refreshDebug, 200);
+  // 毎フレーム更新したいので、軽い間隔(60ms)で polling
+  setInterval(refreshDebug, 60);
 
-  // 値を一つ加減
-  function applyDelta(axis, delta) {
-    if (!tiles) return;
-    if (axis === 'x') tiles.group.position.x += delta;
-    if (axis === 'y') tiles.group.position.y += delta;
-    if (axis === 'z') tiles.group.position.z += delta;
-    if (axis === 'yaw') {
-      const yawQuat = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        THREE.MathUtils.degToRad(delta)
-      );
-      tiles.group.quaternion.premultiply(yawQuat);
-    }
-    refreshDebug();
-  }
-
+  // R = CSVのデフォルト値にカメラをリセット、C = CSV行をクリップボードにコピー
   window.addEventListener('keydown', (e) => {
-    if (!tiles) return;
-    // PCモードのカメラ移動 (WASD) と衝突しないよう、Alt修飾を必須にする
-    if (!e.altKey) return;
-    e.preventDefault();
-    const step = e.shiftKey ? 10 : 1;
-    switch (e.code) {
-      case 'KeyA': applyDelta('x',  -step); break;
-      case 'KeyD': applyDelta('x',   step); break;
-      case 'KeyJ': applyDelta('y',  -step); break;
-      case 'KeyK': applyDelta('y',   step); break;
-      case 'KeyW': applyDelta('z',  -step); break;
-      case 'KeyS': applyDelta('z',   step); break;
-      case 'KeyQ': applyDelta('yaw', -step); break;
-      case 'KeyE': applyDelta('yaw',  step); break;
-      case 'KeyR': {
-        // ベース姿勢にリセット
-        const id = currentDataset ?? loadingDataset;
-        if (id != null && baseTransformByDataset.has(id)) {
-          const base = baseTransformByDataset.get(id);
-          tiles.group.position.copy(base.pos);
-          tiles.group.quaternion.copy(base.quat);
-          refreshDebug();
-        }
-        break;
+    // 通常のWASD/矢印キー操作は阻害しない(Alt/Ctrl/Metaは無視、Shiftだけは許容)
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.code === 'KeyR') {
+      // CSVの初期値にカメラを戻す
+      const id = currentDataset ?? loadingDataset;
+      const ds = id != null ? getDataset(id) : null;
+      if (ds) {
+        dolly.position.set(ds.xOffset, ds.yOffset, ds.zOffset);
+        dolly.rotation.set(0, THREE.MathUtils.degToRad(ds.yawOffset), 0);
+        refreshDebug();
       }
-      case 'KeyC': {
-        // 現在のオフセット値をCSV行としてクリップボードにコピー
-        const o = currentOffsets();
-        if (o) {
-          const ds = getDataset(o.id);
-          const label = ds ? ds.label : '';
-          const line = `${o.id},${label},${o.dx.toFixed(2)},${o.dy.toFixed(2)},${o.dz.toFixed(2)},${o.yawDeg.toFixed(1)}`;
-          navigator.clipboard?.writeText(line);
-          console.log('CSV行をコピー:', line);
-        }
-        break;
+    } else if (e.code === 'KeyC') {
+      const o = currentCam();
+      if (o.id != null) {
+        const ds = getDataset(o.id);
+        const label = ds ? ds.label : '';
+        const line = `${o.id},${label},${o.x.toFixed(2)},${o.y.toFixed(2)},${o.z.toFixed(2)},${o.yawDeg.toFixed(1)}`;
+        navigator.clipboard?.writeText(line);
+        console.log('CSV行をコピー:', line);
       }
     }
   });
