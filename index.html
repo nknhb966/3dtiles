@@ -390,6 +390,16 @@
   </div>
   </div>
 
+  <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">WORLD SCALE</div>
+  <input id="scale-slider" type="range" min="0.5" max="3.0" step="0.1" value="1.0"
+    style="width:160px; accent-color:#00c8ff;">
+  <div style="font-family:monospace; margin-top:4px;">
+    <span id="scale-val">1.0</span>×
+    <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
+      (1.0=実寸 / VR用に拡大)
+    </span>
+  </div>
+
   <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">LOD ERROR TARGET</div>
   <input id="lod-slider" type="range" min="20" max="50" step="0.1" value="20"
     style="width:160px; accent-color:#00c8ff;">
@@ -1458,6 +1468,10 @@ function loadTileset(id) {
 
       grid.scale.setScalar(Math.max(1, r / 50));
 
+      // 現在のWORLD SCALE設定をタイル群に適用
+      // (データセット切替時にも前回のスケール値が維持される)
+      applyWorldScale();
+
       console.log(`タイル ${id} 読込完了 (r=${r.toFixed(1)}m, cam=[${camX},${camY},${camZ}], yaw=${camYaw}°)`);
     }
 
@@ -1650,6 +1664,27 @@ if (isTouchDevice) {
     miniVal.textContent = '30';
   }
 }
+
+// ── WORLD SCALE スライダー ──
+// tiles.group のスケールを変えることで、見た目の世界の大きさを変える。
+// 1.0=実寸(=ECEFのメートル単位そのまま)。
+// 数値を上げるとVRなどで「世界が大きく感じる」ようになる(=自分が縮んだ視点)。
+// カメラ(dolly)位置は変えないので、視点の位置は固定。
+let worldScale = 1.0;
+function applyWorldScale() {
+  if (tiles && tiles.group) {
+    tiles.group.scale.setScalar(worldScale);
+    // matrixWorld を即時更新して、tiles.update() の LOD評価に反映させる
+    tiles.group.updateMatrixWorld(true);
+  }
+}
+const scaleSlider = document.getElementById('scale-slider');
+const scaleVal    = document.getElementById('scale-val');
+scaleSlider.addEventListener('input', () => {
+  worldScale = parseFloat(scaleSlider.value);
+  scaleVal.textContent = worldScale.toFixed(1);
+  applyWorldScale();
+});
 
 // LOD errorTarget スライダー
 const lodSlider = document.getElementById('lod-slider');
