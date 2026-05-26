@@ -1192,6 +1192,64 @@ let yawVel = 0;
 let targetYawVel = 0;
 const SMOOTH = 8.0;
 
+// ── VR 中指トリガー(squeeze) 倍率 ──
+// 右手中指トリガーを押し込むほど、移動/回転が高速になる(最大5倍)。
+// 入力フレームごとに右手の buttons[1].value を読み取って 1.0〜5.0 を算出。
+const SQUEEZE_MAX_BOOST = 5.0; // 満押し時の倍率
+
+// ── 左手中指トリガー + Y/X による POINT DENSITY 増減 ──
+// 1回押すごとに 5% 増減(=スライダー step と同じ)。
+// 押しっぱなしの場合、最初の押下は即時、その後 ~500ms 待ってから 100ms間隔で連続リピート。
+const DENSITY_STEP = 0.05;     // 1回あたりの増減幅
+const DENSITY_REPEAT_DELAY = 500;   // 初回押下→連続開始までの遅延 (ms)
+const DENSITY_REPEAT_INTERVAL = 100; // 連続適用の間隔 (ms)
+// 各ボタンごとに「押下開始時刻」「最後にステップを適用した時刻」を保持。
+// nullなら未押下、数値なら押下中(performance.now() ベース)。
+const densityBtnState = {
+  x: { pressedAt: null, lastStepAt: null },
+  y: { pressedAt: null, lastStepAt: null },
+};
+function handleDensityButton(side, pressed, delta) {
+  // side: 'x' | 'y', pressed: bool, delta: +DENSITY_STEP or -DENSITY_STEP
+  const st = densityBtnState[side];
+  const now = performance.now();
+  if (pressed) {
+    if (st.pressedAt === null) {
+      // 押下開始エッジ: 即時1回適用
+      st.pressedAt = now;
+      st.lastStepAt = now;
+      applyDensityDelta(delta);
+    } else {
+      // 押しっぱなし: 遅延後リピート
+      const heldFor = now - st.pressedAt;
+      if (heldFor >= DENSITY_REPEAT_DELAY &&
+          (now - st.lastStepAt) >= DENSITY_REPEAT_INTERVAL) {
+        st.lastStepAt = now;
+        applyDensityDelta(delta);
+      }
+    }
+  } else {
+    // 離した: 状態リセット
+    st.pressedAt = null;
+    st.lastStepAt = null;
+  }
+}
+function applyDensityDelta(delta) {
+  // 0.10〜1.00 にクランプ(スライダー範囲と同じ)
+  const next = Math.max(0.10, Math.min(1.00, pointDensity + delta));
+  if (Math.abs(next - pointDensity) < 1e-6) return; // 端で変化なしならスキップ
+  pointDensity = next;
+  cubeUniforms.uDensity.value = pointDensity;
+  // UI 同期 (スライダー value と表示)
+  const slider = document.getElementById('density-slider');
+  const valEl  = document.getElementById('density-val');
+  if (slider && valEl) {
+    const pct = Math.round(pointDensity * 100);
+    slider.value = String(pct);
+    valEl.textContent = String(pct);
+  }
+}
+
 // XR入力ソースを毎フレーム読む関数
 function handleVRInput(dt) {
   const session = renderer.xr.getSession();
@@ -1222,6 +1280,27 @@ function handleVRInput(dt) {
   // 右方向 = forward を Y軸まわりに -90度回転
   const hmdRight = new THREE.Vector3(hmdForward.z, 0, -hmdForward.x);
 
+  // ── 入力ソースを先回りスキャン ──
+  // 中指トリガー(squeeze)の値を先に確定する:
+  //   ・右手 squeeze → 移動/回転/上下の倍率(1.0〜5.0)
+  //   ・左手 squeeze → 押下中なら Y/X の役割を POINT SIZE → POINT DENSITY に切替
+  // squeeze は WebXR標準で gamepad.buttons[1] にマップされる(Quest 含む)。
+  let boost = 1.0;
+  let leftSqueezeHeld = false;
+  for (const source of session.inputSources) {
+    if (!source.gamepad) continue;
+    const sq = source.gamepad.buttons[1];
+    if (!sq) continue;
+    if (source.handedness === 'right') {
+      // sq.value は 0.0〜1.0。線形マッピングで 1〜SQUEEZE_MAX_BOOST 倍に。
+      boost = 1.0 + sq.value * (SQUEEZE_MAX_BOOST - 1.0);
+    } else if (source.handedness === 'left') {
+      // pressed か value>0.5 のどちらかでホールド扱い
+      // (デバイス差を吸収:bool press のみで連続値を出さない実装もある)
+      leftSqueezeHeld = sq.pressed || sq.value > 0.5;
+    }
+  }
+
   for (const source of session.inputSources) {
     if (!source.gamepad) continue;
     const gp = source.gamepad;
@@ -1233,34 +1312,53 @@ function handleVRInput(dt) {
     const stickY = Math.abs(axes[3]) > DEADZONE ? axes[3] : 0;
 
     if (hand === 'left') {
-      // HMD（頭）の向きを基準に前後左右の移動
+      // HMD（頭）の向きを基準に前後左右の移動 (boost倍率を乗算)
       // stickY: 上倒し=-1 → 前進、下倒し=+1 → 後退
       // stickX: 右倒し=+1 → 左移動、左倒し=-1 → 右移動（実機検証で反転が自然）
-      targetVel.addScaledVector(hmdForward, -stickY * MOVE_SPEED);
-      targetVel.addScaledVector(hmdRight,   -stickX * MOVE_SPEED);
+      targetVel.addScaledVector(hmdForward, -stickY * MOVE_SPEED * boost);
+      targetVel.addScaledVector(hmdRight,   -stickX * MOVE_SPEED * boost);
 
-      // 左手 X=buttons[4]:点を小さく, Y=buttons[5]:点を大きく
-      const sizeStep = pointSize * 0.05;
-      if (buttons[4] && buttons[4].pressed) {
-        pointSize = Math.max(0.001, pointSize - sizeStep);
-        applyPointSize();
-        updateSizeSlider();
-      }
-      if (buttons[5] && buttons[5].pressed) {
-        pointSize = Math.min(0.05, pointSize + sizeStep);
-        applyPointSize();
-        updateSizeSlider();
+      // 左手 X=buttons[4], Y=buttons[5] の役割は中指トリガー状態で切替:
+      //   ・左中指トリガー押下中 → POINT DENSITY 増減 (X:-5%, Y:+5%, 長押し連続)
+      //   ・押していない         → POINT SIZE 増減   (X:小さく, Y:大きく)
+      const xBtn = buttons[4];
+      const yBtn = buttons[5];
+      const xPressed = !!(xBtn && xBtn.pressed);
+      const yPressed = !!(yBtn && yBtn.pressed);
+
+      if (leftSqueezeHeld) {
+        // 役割切替: POINT DENSITY 増減 (長押しリピート対応)
+        handleDensityButton('x', xPressed, -DENSITY_STEP); // X: 減らす
+        handleDensityButton('y', yPressed,  DENSITY_STEP); // Y: 増やす
+      } else {
+        // 既定: POINT SIZE 増減
+        // 切替直後にステートが残らないよう、密度ボタン状態をリセット
+        if (densityBtnState.x.pressedAt !== null) handleDensityButton('x', false, 0);
+        if (densityBtnState.y.pressedAt !== null) handleDensityButton('y', false, 0);
+
+        const sizeStep = pointSize * 0.05;
+        if (xPressed) {
+          // 上限は新スライダー仕様に合わせて 0.080 (=UI80)
+          pointSize = Math.max(0.001, pointSize - sizeStep);
+          applyPointSize();
+          updateSizeSlider();
+        }
+        if (yPressed) {
+          pointSize = Math.min(0.080, pointSize + sizeStep);
+          applyPointSize();
+          updateSizeSlider();
+        }
       }
     }
 
     if (hand === 'right') {
       // 右スティック左右：ヨー回転（上下は使わない）
-      // VRでは PC のキー操作より速めに回したいので 1.5倍にする
-      targetYawVel -= stickX * TURN_SPEED * 1.5;
+      // VRでは PC のキー操作より速めに回したいので 1.5倍 + boost倍率
+      targetYawVel -= stickX * TURN_SPEED * 1.5 * boost;
 
-      // 右手 A=buttons[4]:下降, B=buttons[5]:上昇
-      if (buttons[4] && buttons[4].pressed) targetVel.y -= VERT_SPEED;
-      if (buttons[5] && buttons[5].pressed) targetVel.y += VERT_SPEED;
+      // 右手 A=buttons[4]:下降, B=buttons[5]:上昇 (boost倍率を乗算)
+      if (buttons[4] && buttons[4].pressed) targetVel.y -= VERT_SPEED * boost;
+      if (buttons[5] && buttons[5].pressed) targetVel.y += VERT_SPEED * boost;
     }
   }
 }
