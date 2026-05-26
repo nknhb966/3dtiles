@@ -780,26 +780,45 @@
   </div>
 
   <!-- ──────────────────────────────────────────────────────
-       以下、LOD ERROR TARGET / CACHE TILES / CACHE MEMORY は
-       自動チューニング(プロファイル機構)に任せるため UI 非表示。
+       LOD ERROR TARGET は自動プロファイルで初期値が決まるが、
+       端末/回線によっては重く感じる場合があるためユーザーが手動調整できる。
+       CACHE TILES / CACHE MEMORY は引き続き自動チューニングのみ(UI非表示)。
        スライダー要素は DOM 上は残し、JS から参照&制御する。
-       デバッグ目的で値を確認したい場合は ?profile=low|mid|high|ultra で
-       強制プロファイルを指定する。
+       デバッグ目的でプロファイル全体を上書きしたい場合は
+       ?profile=low|mid|high|ultra で強制指定する。
        ────────────────────────────────────────────────────── -->
 
-  <!-- LOD ERROR TARGET (非表示) -->
-  <div class="ctrl-group" style="display:none">
-    <input id="lod-slider" type="range" min="8" max="80" step="1" value="20">
-    <span id="lod-val">20</span>
+  <!-- LOD ERROR TARGET -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>LOD ERROR TARGET</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-lod">ⓘ</button>
+    </div>
+    <input id="lod-slider" type="range" min="8" max="80" step="1" value="28"
+      style="width:260px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="lod-val">28</span>
+      <span style="color:rgba(200,221,232,0.6); font-size:12px; margin-left:6px;">
+        (小さいほど高詳細 / 大きいほど軽い)
+      </span>
+    </div>
+    <div id="info-lod" class="ctrl-info-body" hidden>
+      画面上で許容するLOD誤差(ピクセル)を指定する設定。
+      値が小さいほど高詳細なタイルを積極的に読み込み、画面はくっきりするが
+      タイル数・通信量・GPU負荷がすべて増える。
+      値を大きくすると粗いタイルで満足するようになり、動作は軽くなる。
+      初期値は端末スペック・回線速度から自動判定(画面下のAutoバッジ参照)。
+      動作が重いと感じたら数値を上げ、もっとくっきり見たければ下げる。
+    </div>
   </div>
 
-  <!-- CACHE TILES (非表示) -->
+  <!-- CACHE TILES (非表示・自動チューニングのみ) -->
   <div class="ctrl-group" style="display:none">
     <input id="cache-tiles-slider" type="range" min="300" max="8000" step="100" value="2000">
     <span id="cache-tiles-val">2000</span>
   </div>
 
-  <!-- CACHE MEMORY (非表示) -->
+  <!-- CACHE MEMORY (非表示・自動チューニングのみ) -->
   <div class="ctrl-group" style="display:none">
     <input id="cache-bytes-slider" type="range" min="256" max="4096" step="128" value="1536">
     <span id="cache-bytes-val">1536</span>
@@ -1705,8 +1724,10 @@ let cameraInitialized = false;
 let _tilesCameraRegistered = false; // tiles.setCamera を1度だけ呼ぶためのフラグ
 
 // LOD制御：errorTarget が小さいほど高詳細(=LODが効きにくい)、大きいほど積極的に間引く
-// 初期値20。スライダーで15〜30の範囲で調整可能。
-let lodErrorTarget = 20;
+// 初期値はプロファイル自動判定で上書きされる(applyProfile)。スライダーのHTML既定値と
+// 揃えて、プロファイル未動作時のフォールバック値とする(28 = profile 'high' 相当)。
+// ユーザーはスライダーから 8〜80 の範囲で手動調整可能。
+let lodErrorTarget = 28;
 
 // LRUキャッシュ上限：訪問した領域のディテールを保持する量
 // タイル数ベース / バイト数(MB)ベース、両方を上限として併用
@@ -2528,11 +2549,24 @@ prefetchBtn.addEventListener('click', () => {
 //   DOWNLOAD JOBS        (スライダーなし、内部のみ)
 //   CACHE TILES  range  300 〜 8000
 //   CACHE MB     range  256 〜 4096
+// プロファイル定義
+//
+// LOD ERROR TARGET は「画面上で許容するLOD誤差ピクセル数」。
+// 値が小さいほど高詳細タイルを引き寄せ、視界内のタイル数が増える。
+// 点群3D Tilesは1タイルあたりの点数も多くGPU/メモリ負荷が大きいので、
+// 一般的な3Dモデル(b3dm)向けの感覚より控えめな値に振っている。
+//
+//   low:   重い端末/回線でも破綻しない最低品質
+//   mid:   3G〜中位スマホ・タッチ端末向け
+//   high:  4G〜PC向け、現実的なデフォルト
+//   ultra: 高速回線 & ハイエンドPC向け(それでも12は攻めすぎるので18に)
+//
+// ※ ユーザーは UI のスライダーから初期値を上書き可能(範囲 8〜80)。
 const PROFILES = {
-  low:   { lod: 40, jobs:  4, tiles:  600, mb:  384, label: 'Low'   },
-  mid:   { lod: 30, jobs:  8, tiles: 1000, mb:  768, label: 'Mid'   },
-  high:  { lod: 20, jobs: 16, tiles: 2000, mb: 1536, label: 'High'  },
-  ultra: { lod: 12, jobs: 24, tiles: 4000, mb: 3072, label: 'Ultra' },
+  low:   { lod: 50, jobs:  4, tiles:  600, mb:  384, label: 'Low'   },
+  mid:   { lod: 40, jobs:  8, tiles: 1000, mb:  768, label: 'Mid'   },
+  high:  { lod: 28, jobs: 16, tiles: 2000, mb: 1536, label: 'High'  },
+  ultra: { lod: 18, jobs: 24, tiles: 4000, mb: 3072, label: 'Ultra' },
 };
 
 function detectAutoProfile() {
@@ -2590,7 +2624,8 @@ applyProfile(autoProfile.key);
 console.log(`Auto profile: ${autoProfile.key} (${autoProfile.reason})`);
 
 // コントロールパネル本体の先頭に "Auto: ..." バッジを差し込む
-// (LOD/CACHE は UI から非表示なので「Manual切替」監視は不要)
+// (LOD ERROR TARGET スライダーはユーザーが手動で動かせるが、CACHE TILES/MEMORY は
+//  非表示で自動値のままなので、現状どのプロファイルが効いているか分かるよう表示する)
 (function injectProfileBadge() {
   const body = document.getElementById('controls-body');
   if (!body) return;
