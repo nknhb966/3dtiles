@@ -699,11 +699,11 @@
   backdrop-filter: blur(8px);
 ">
   <!-- ヘッダー（スマホ時のみ表示）-->
-  <!-- 左: POINT SIZE のミニスライダー(タップ拡張時もそのまま操作可) -->
+  <!-- 左: 「点のサイズ」のミニスライダー(タップ拡張時もそのまま操作可) -->
   <!-- 右: 本体の開閉トグル -->
   <div id="controls-header">
     <div id="size-mini">
-      <span class="lbl">SIZE</span>
+      <span class="lbl">サイズ</span>
       <input id="size-mini-slider" type="range" min="1" max="80" step="1" value="5">
       <span id="size-mini-val">5</span>
     </div>
@@ -716,28 +716,63 @@
   <!-- 本体 -->
   <div id="controls-body">
 
-  <!-- POINT SIZE -->
-  <div id="size-row" class="ctrl-group">
+  <!-- ──────────────────────────────────────────────────────
+       コントロールパネル本体の項目順は「動作の重さに与える影響が大きい順」。
+       上から触れば性能トラブルシュートしやすく、下の項目ほど見た目の微調整。
+       1. 画質              … タイル細かさ。最も性能影響が大きい
+       2. 点の密度          … 描画頂点数を一律に増減。GPU負荷の主因
+       3. 点のサイズ        … スプライト塗り面積。フラグメント側に効く
+       4. 表示倍率          … VRで体感サイズ調整。性能影響は軽微
+       5. 先読み            … 1回限りのアクション
+       ────────────────────────────────────────────────────── -->
+
+  <!-- ─────────── 1. 画質 (LOD ERROR TARGET) ─────────── -->
+  <!-- 内部的には 3D Tiles Renderer の errorTarget(8〜80) を制御するが、
+       UIには 1〜20 の独自スケール "画質" として見せる(値が大きいほど高品質)。
+       変換は非線形(指数)で、低品質側では1段ごとの体感差が大きく、
+       高品質側は細かく刻めるようにする。
+       初期値はプロファイル自動判定で決まり、ユーザーは手動で変更可能。 -->
+  <div class="ctrl-group">
     <div class="ctrl-label">
-      <span>POINT SIZE</span>
-      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-size">ⓘ</button>
+      <span>画質</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-quality">ⓘ</button>
     </div>
-    <input id="size-slider" type="range" min="1" max="80" step="1" value="5"
+    <input id="lod-slider" type="range" min="1" max="20" step="1" value="12"
       style="width:260px; accent-color:#00c8ff;">
     <div style="font-family:monospace; margin-top:4px;">
-      <span id="size-val">5</span>
+      <span id="lod-val">12</span>
+      <span style="color:rgba(200,221,232,0.6); font-size:12px; margin-left:6px;">
+        (20=最高品質 / 1=最軽量)
+      </span>
     </div>
-    <div id="info-size" class="ctrl-info-body" hidden>
-      1点を1辺 [値×1mm] の立方体として描画するサイズ。
-      小さいほど精細だが、点同士の隙間が目立ちやすい。
-      大きいほど隙間が埋まり遠景が見やすくなるが、塊感が強くなる。
+    <div id="info-quality" class="ctrl-info-body" hidden>
+      画面に描画するタイルの細かさを20段階で指定する設定。
+      値が大きいほどくっきり高詳細になるが、読み込むタイル数・通信量・GPU負荷も増える。
+      値を下げると粗くなる代わりに動作が軽くなる。
+      初期値は端末スペック・回線速度から自動判定する(画面上部のAutoバッジ参照)。
+      動作が重いと感じたら数値を下げ、もっとくっきり見たければ上げる。
+      内部的には 3D Tiles Renderer の errorTarget(許容LOD誤差ピクセル数)を
+      非線形に変換して制御している(画質20→errorTarget=8、画質1→errorTarget=80)。
     </div>
   </div>
 
-  <!-- POINT DENSITY -->
+  <!-- キャッシュ系は引き続き自動チューニングのみ(UI非表示)。
+       スライダー要素は DOM 上は残し、JS から参照&制御する。
+       デバッグ目的でプロファイル全体を上書きしたい場合は
+       ?profile=low|mid|high|ultra で強制指定する。 -->
+  <div class="ctrl-group" style="display:none">
+    <input id="cache-tiles-slider" type="range" min="300" max="8000" step="100" value="2000">
+    <span id="cache-tiles-val">2000</span>
+  </div>
+  <div class="ctrl-group" style="display:none">
+    <input id="cache-bytes-slider" type="range" min="256" max="4096" step="128" value="1536">
+    <span id="cache-bytes-val">1536</span>
+  </div>
+
+  <!-- ─────────── 2. 点の密度 (POINT DENSITY) ─────────── -->
   <div class="ctrl-group">
     <div class="ctrl-label">
-      <span>POINT DENSITY</span>
+      <span>点の密度</span>
       <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-density">ⓘ</button>
     </div>
     <input id="density-slider" type="range" min="10" max="100" step="5" value="100"
@@ -754,14 +789,32 @@
       タイル自体はそのままなのでメモリ・ダウンロード量は変わらないが、
       描画コスト(特にGPU負荷)が直線的に下がる。
       VRでカクつく / ハイエンドPCでも重いデータで滑らかさが欲しい時に下げる。
-      LODと違いタイル境界の粗さが目立たず、均一に薄くなるのが特徴。
+      画質設定と違いタイル境界の粗さが目立たず、均一に薄くなるのが特徴。
     </div>
   </div>
 
-  <!-- WORLD SCALE -->
+  <!-- ─────────── 3. 点のサイズ (POINT SIZE) ─────────── -->
+  <div id="size-row" class="ctrl-group">
+    <div class="ctrl-label">
+      <span>点のサイズ</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-size">ⓘ</button>
+    </div>
+    <input id="size-slider" type="range" min="1" max="80" step="1" value="5"
+      style="width:260px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="size-val">5</span>
+    </div>
+    <div id="info-size" class="ctrl-info-body" hidden>
+      1点を1辺 [値×1mm] の立方体として描画するサイズ。
+      小さいほど精細だが、点同士の隙間が目立ちやすい。
+      大きいほど隙間が埋まり遠景が見やすくなるが、塊感が強くなる。
+    </div>
+  </div>
+
+  <!-- ─────────── 4. 表示倍率 (WORLD SCALE) ─────────── -->
   <div class="ctrl-group">
     <div class="ctrl-label">
-      <span>WORLD SCALE</span>
+      <span>表示倍率</span>
       <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-scale">ⓘ</button>
     </div>
     <input id="scale-slider" type="range" min="0.5" max="3.0" step="0.1" value="1.0"
@@ -779,55 +832,10 @@
     </div>
   </div>
 
-  <!-- ──────────────────────────────────────────────────────
-       LOD ERROR TARGET は自動プロファイルで初期値が決まるが、
-       端末/回線によっては重く感じる場合があるためユーザーが手動調整できる。
-       CACHE TILES / CACHE MEMORY は引き続き自動チューニングのみ(UI非表示)。
-       スライダー要素は DOM 上は残し、JS から参照&制御する。
-       デバッグ目的でプロファイル全体を上書きしたい場合は
-       ?profile=low|mid|high|ultra で強制指定する。
-       ────────────────────────────────────────────────────── -->
-
-  <!-- LOD ERROR TARGET -->
+  <!-- ─────────── 5. 先読み (PREFETCH) ─────────── -->
   <div class="ctrl-group">
     <div class="ctrl-label">
-      <span>LOD ERROR TARGET</span>
-      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-lod">ⓘ</button>
-    </div>
-    <input id="lod-slider" type="range" min="8" max="80" step="1" value="28"
-      style="width:260px; accent-color:#00c8ff;">
-    <div style="font-family:monospace; margin-top:4px;">
-      <span id="lod-val">28</span>
-      <span style="color:rgba(200,221,232,0.6); font-size:12px; margin-left:6px;">
-        (小さいほど高詳細 / 大きいほど軽い)
-      </span>
-    </div>
-    <div id="info-lod" class="ctrl-info-body" hidden>
-      画面上で許容するLOD誤差(ピクセル)を指定する設定。
-      値が小さいほど高詳細なタイルを積極的に読み込み、画面はくっきりするが
-      タイル数・通信量・GPU負荷がすべて増える。
-      値を大きくすると粗いタイルで満足するようになり、動作は軽くなる。
-      初期値は端末スペック・回線速度から自動判定(画面下のAutoバッジ参照)。
-      動作が重いと感じたら数値を上げ、もっとくっきり見たければ下げる。
-    </div>
-  </div>
-
-  <!-- CACHE TILES (非表示・自動チューニングのみ) -->
-  <div class="ctrl-group" style="display:none">
-    <input id="cache-tiles-slider" type="range" min="300" max="8000" step="100" value="2000">
-    <span id="cache-tiles-val">2000</span>
-  </div>
-
-  <!-- CACHE MEMORY (非表示・自動チューニングのみ) -->
-  <div class="ctrl-group" style="display:none">
-    <input id="cache-bytes-slider" type="range" min="256" max="4096" step="128" value="1536">
-    <span id="cache-bytes-val">1536</span>
-  </div>
-
-  <!-- PREFETCH -->
-  <div class="ctrl-group">
-    <div class="ctrl-label">
-      <span>PREFETCH</span>
+      <span>先読み</span>
       <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-prefetch">ⓘ</button>
     </div>
     <button id="prefetch-btn" style="
@@ -842,9 +850,9 @@
       letter-spacing: 1px;
       border-radius: 3px;
       cursor: pointer;
-    ">START PREFETCH</button>
+    ">先読み開始</button>
     <div style="font-family:monospace; margin-top:4px; font-size:12px;">
-      <span id="prefetch-status">idle</span>
+      <span id="prefetch-status">待機中</span>
     </div>
     <div id="info-prefetch" class="ctrl-info-body" hidden>
       現在のデータセットの全タイルを先読みしてブラウザのキャッシュに乗せる機能。
@@ -1724,10 +1732,11 @@ let cameraInitialized = false;
 let _tilesCameraRegistered = false; // tiles.setCamera を1度だけ呼ぶためのフラグ
 
 // LOD制御：errorTarget が小さいほど高詳細(=LODが効きにくい)、大きいほど積極的に間引く
-// 初期値はプロファイル自動判定で上書きされる(applyProfile)。スライダーのHTML既定値と
-// 揃えて、プロファイル未動作時のフォールバック値とする(28 = profile 'high' 相当)。
-// ユーザーはスライダーから 8〜80 の範囲で手動調整可能。
-let lodErrorTarget = 28;
+// 初期値はプロファイル自動判定で上書きされる(applyProfile)。スライダーのHTML既定値
+// (画質=12, profile 'high'相当) を qualityToErrorTarget で変換した値に揃えて、
+// プロファイル未動作時のフォールバック値とする。
+// ユーザーはスライダーから 画質 1〜20 の範囲で手動調整可能。
+let lodErrorTarget = 21;  // = qualityToErrorTarget(12)
 
 // LRUキャッシュ上限：訪問した領域のディテールを保持する量
 // タイル数ベース / バイト数(MB)ベース、両方を上限として併用
@@ -1899,12 +1908,12 @@ async function startPrefetch() {
   const rootUrl = tilesetUrl(currentDataset);
   const collected = new Set();
 
-  prefetchSetStatus('collecting...');
+  prefetchSetStatus('タイル一覧収集中…');
   // ボタン表示も「収集中」状態に
   updatePrefetchUI();
   await collectTileUris(rootUrl, collected);
   if (prefetchState.cancel) {
-    prefetchSetStatus('cancelled');
+    prefetchSetStatus('キャンセルされました');
     prefetchState.running = false;
     updatePrefetchUI();
     return;
@@ -1918,17 +1927,17 @@ async function startPrefetch() {
     const tileCount = collected.size;
     const estMB = Math.round(tileCount * 0.5); // 平均0.5MB仮定の概算
     const msg =
-      `PREFETCH 確認\n\n` +
+      `先読みの確認\n\n` +
       `タイル数: 約 ${tileCount} 件\n` +
       `推定サイズ: 約 ${estMB} MB(平均0.5MB/タイル想定の概算)\n\n` +
-      `多量のデータをダウンロードし、ブラウザのHTTPキャッシュに乗せます。\n` +
+      `多量のデータをダウンロードし、ブラウザのキャッシュに保存します。\n` +
       `モバイル回線では通信量が大きくなる場合があります。\n\n` +
       `実行しますか?`;
     // window.confirm はモーダルブロッキング。
     // 注: iOS Safari等ではユーザ操作起因の同期confirm以外がブロックされる可能性あり。
     const ok = window.confirm(msg);
     if (!ok) {
-      prefetchSetStatus('cancelled');
+      prefetchSetStatus('キャンセルされました');
       prefetchState.running = false;
       updatePrefetchUI();
       return;
@@ -1936,7 +1945,7 @@ async function startPrefetch() {
   }
   // 念のため、ダイアログ中にユーザが他データに切替た等でキャンセル要求が来ていないか再確認
   if (prefetchState.cancel) {
-    prefetchSetStatus('cancelled');
+    prefetchSetStatus('キャンセルされました');
     prefetchState.running = false;
     updatePrefetchUI();
     return;
@@ -1951,12 +1960,12 @@ async function startPrefetch() {
 
   prefetchState.running = false;
   if (prefetchState.cancel) {
-    prefetchSetStatus('cancelled');
+    prefetchSetStatus('キャンセルされました');
   } else {
-    prefetchSetStatus(`done: ${prefetchState.done} / ${prefetchState.total}` +
-      (prefetchState.failed > 0 ? ` (fail: ${prefetchState.failed})` : ''));
+    prefetchSetStatus(`完了: ${prefetchState.done} / ${prefetchState.total}` +
+      (prefetchState.failed > 0 ? ` (失敗: ${prefetchState.failed})` : ''));
   }
-  // ボタン表示を「START PREFETCH」に戻す
+  // ボタン表示を「先読み開始」に戻す
   updatePrefetchUI();
   console.log('prefetch完了', prefetchState);
 }
@@ -1981,13 +1990,13 @@ function updatePrefetchUI() {
   if (!el || !btn) return;
   if (prefetchState.running) {
     el.textContent = `${prefetchState.done} / ${prefetchState.total}` +
-      (prefetchState.failed > 0 ? ` (fail: ${prefetchState.failed})` : '');
-    btn.textContent = 'CANCEL';
+      (prefetchState.failed > 0 ? ` (失敗: ${prefetchState.failed})` : '');
+    btn.textContent = '中止';
     btn.style.background = 'rgba(255,80,80,0.15)';
     btn.style.borderColor = 'rgba(255,80,80,0.7)';
     btn.style.color = '#ff6b6b';
   } else {
-    btn.textContent = 'START PREFETCH';
+    btn.textContent = '先読み開始';
     btn.style.background = 'transparent';
     btn.style.borderColor = 'rgba(0,200,255,0.6)';
     btn.style.color = '#00c8ff';
@@ -2028,9 +2037,9 @@ function setProgressStage(stage) {
   el.setAttribute('data-state', stage);
   const stageLabel = {
     idle:      '',
-    loading:   'LOADING',
-    rendering: 'RENDERING',
-    ready:     'READY',
+    loading:   '読み込み中',
+    rendering: '描画中',
+    ready:     '完了',
   }[stage] || '';
   if (progressStageEl()) progressStageEl().textContent = stageLabel;
   if (stage === 'ready') {
@@ -2072,7 +2081,7 @@ function updateLoadProgress() {
   const sessionBytes = Math.max(0, cacheBytes - progressState.bytesAtSwitch);
 
   // 詳細表示
-  const detail = `tiles: ${active} active / ${visible} visible · queue: ${dlQueue + parseQ} · ${formatBytes(sessionBytes)}`;
+  const detail = `タイル: ${active}表示中 / ${visible}視界内 · 待機: ${dlQueue + parseQ} · ${formatBytes(sessionBytes)}`;
   const dEl = progressDetailEl();
   if (dEl) dEl.textContent = detail;
 
@@ -2112,7 +2121,7 @@ function loadTileset(id) {
     cancelPrefetch();
   }
   // ステータスもリセット
-  prefetchSetStatus('idle');
+  prefetchSetStatus('待機中');
 
   // ── ロード進捗 reset & "loading" 状態に遷移 ──
   setProgressStage('loading');
@@ -2487,12 +2496,25 @@ scaleSlider.addEventListener('input', () => {
   applyWorldScale();
 });
 
-// LOD errorTarget スライダー
+// 画質スライダー(独自スケール 1〜20) → errorTarget(8〜80) 変換
+// 非線形(指数)変換:
+//   errorTarget = round( 80 * 0.1^((q-1)/19) )
+// q=1  → 80 (最軽量、粗い)
+// q=12 → 21 (デフォルト 'high' 相当)
+// q=20 → 8  (最高品質)
+// 低品質側で1段ごとの体感差が大きく、高品質側は細かく刻める設計。
+function qualityToErrorTarget(q) {
+  q = Math.max(1, Math.min(20, q | 0));
+  const et = Math.round(80 * Math.pow(0.1, (q - 1) / 19));
+  return Math.max(8, Math.min(80, et));
+}
 const lodSlider = document.getElementById('lod-slider');
 const lodVal = document.getElementById('lod-val');
 lodSlider.addEventListener('input', () => {
-  lodErrorTarget = parseInt(lodSlider.value, 10);
-  lodVal.textContent = String(lodErrorTarget);
+  const quality = parseInt(lodSlider.value, 10);
+  lodErrorTarget = qualityToErrorTarget(quality);
+  // UIには画質値(1〜20)を表示。errorTargetはⓘ説明内で触れる程度。
+  lodVal.textContent = String(quality);
   // VR状態/優先モードを加味して反映
   applyActiveTilesSettings();
 });
@@ -2551,29 +2573,28 @@ prefetchBtn.addEventListener('click', () => {
 //   CACHE MB     range  256 〜 4096
 // プロファイル定義
 //
-// LOD ERROR TARGET は「画面上で許容するLOD誤差ピクセル数」。
-// 値が小さいほど高詳細タイルを引き寄せ、視界内のタイル数が増える。
-// 点群3D Tilesは1タイルあたりの点数も多くGPU/メモリ負荷が大きいので、
-// 一般的な3Dモデル(b3dm)向けの感覚より控えめな値に振っている。
+// 'lod' フィールドは UIスライダーの "画質" 値(1〜20)を意味する。
+// 画質値が大きいほど高詳細(errorTarget が小さくなる方向)。
+// 実際の errorTarget は qualityToErrorTarget(quality) で非線形変換される。
 //
 //   low:   重い端末/回線でも破綻しない最低品質
 //   mid:   3G〜中位スマホ・タッチ端末向け
-//   high:  4G〜PC向け、現実的なデフォルト
-//   ultra: 高速回線 & ハイエンドPC向け(それでも12は攻めすぎるので18に)
+//   high:  4G〜PC向け、現実的なデフォルト(画質スケールの中央寄り)
+//   ultra: 高速回線 & ハイエンドPC向け
 //
-// ※ ユーザーは UI のスライダーから初期値を上書き可能(範囲 8〜80)。
+// ※ ユーザーは UI のスライダーから初期値を上書き可能(画質範囲 1〜20)。
 const PROFILES = {
-  low:   { lod: 50, jobs:  4, tiles:  600, mb:  384, label: 'Low'   },
-  mid:   { lod: 40, jobs:  8, tiles: 1000, mb:  768, label: 'Mid'   },
-  high:  { lod: 28, jobs: 16, tiles: 2000, mb: 1536, label: 'High'  },
-  ultra: { lod: 18, jobs: 24, tiles: 4000, mb: 3072, label: 'Ultra' },
+  low:   { lod:  5, jobs:  4, tiles:  600, mb:  384, label: 'Low'   },
+  mid:   { lod:  8, jobs:  8, tiles: 1000, mb:  768, label: 'Mid'   },
+  high:  { lod: 12, jobs: 16, tiles: 2000, mb: 1536, label: 'High'  },
+  ultra: { lod: 16, jobs: 24, tiles: 4000, mb: 3072, label: 'Ultra' },
 };
 
 function detectAutoProfile() {
   // URLで強制指定があれば最優先
   const forced = new URLSearchParams(location.search).get('profile');
   if (forced && PROFILES[forced]) {
-    return { key: forced, reason: 'URL ?profile=' + forced };
+    return { key: forced, reason: 'URL指定 ?profile=' + forced };
   }
 
   const conn  = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -2585,20 +2606,20 @@ function detectAutoProfile() {
 
   // 1. データセーバー / 極端な低速回線 → Low
   if (save || eType === 'slow-2g' || eType === '2g') {
-    return { key: 'low', reason: 'slow connection or save-data' };
+    return { key: 'low', reason: '低速回線またはデータセーバー有効' };
   }
   // 2. 3G or タッチデバイスでコア4以下 → Mid
   if (eType === '3g' || (isTouchDevice && cores > 0 && cores <= 4)) {
-    return { key: 'mid', reason: '3G or low-core touch device' };
+    return { key: 'mid', reason: '3G回線または低コアのタッチ端末' };
   }
   // 3. ハイエンド条件: 4G+ で downlink >= 20Mbps かつ コア >= 8 かつ memory >= 8GB
   if ((eType === '4g' || !eType) && dl && dl >= 20 && cores >= 8 && (!mem || mem >= 8)) {
-    return { key: 'ultra', reason: 'fast network + high-end device' };
+    return { key: 'ultra', reason: '高速回線+高性能端末' };
   }
   // 4. デフォルト → High
   return {
     key: 'high',
-    reason: conn ? `${eType || '4g'} connection` : 'navigator.connection unavailable',
+    reason: conn ? `${eType || '4g'}回線` : '回線情報なし',
   };
 }
 
