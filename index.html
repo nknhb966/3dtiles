@@ -303,6 +303,104 @@
       white-space: nowrap;
     }
 
+    /* ロード中はデータセットボタン全体を操作不可に */
+    #dataset-switch.is-loading .dataset-btn:not(.loading) {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: saturate(0.3);
+    }
+    .dataset-btn[disabled],
+    #prefetch-btn[disabled] {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* ── ロード進捗オーバーレイ ── */
+    #load-progress {
+      position: fixed;
+      left: 50%;
+      bottom: 88px;
+      transform: translateX(-50%);
+      min-width: 240px;
+      max-width: calc(100vw - 32px);
+      padding: 10px 14px;
+      background: rgba(0,0,0,0.78);
+      border: 1px solid rgba(0,200,255,0.4);
+      border-radius: 6px;
+      color: #c8e0ec;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      z-index: 110;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+      transition: opacity 0.4s ease, transform 0.25s ease;
+      opacity: 0;
+    }
+    /* 状態別の表示制御 */
+    #load-progress[data-state="loading"],
+    #load-progress[data-state="rendering"] {
+      opacity: 1;
+    }
+    #load-progress[data-state="ready"] {
+      opacity: 1;
+      /* "Ready" は2秒見せて消す。JS側でidleに切替えてフェードアウト */
+    }
+    #load-progress[data-state="idle"] {
+      opacity: 0;
+    }
+    #load-progress .lp-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    #load-progress .lp-stage {
+      font-weight: bold;
+      color: #00c8ff;
+      letter-spacing: 1px;
+    }
+    #load-progress[data-state="ready"] .lp-stage {
+      color: #5fff8a;
+    }
+    #load-progress .lp-detail {
+      font-size: 10px;
+      color: rgba(200,221,232,0.75);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #load-progress .lp-bar {
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #load-progress .lp-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #00c8ff, #5fff8a);
+      transition: width 0.25s ease;
+    }
+    #load-progress[data-state="loading"] .lp-bar-fill {
+      /* tileset.json取得中は不確定進捗(アニメ) */
+      width: 30%;
+      animation: lp-indeterminate 1.2s ease-in-out infinite;
+    }
+    @keyframes lp-indeterminate {
+      0%   { margin-left: -30%; }
+      100% { margin-left: 100%; }
+    }
+    /* スマホ時はサイズ縮小 */
+    body.touch #load-progress {
+      bottom: 200px;       /* スマホのジョイスティック・上下ボタンを避ける */
+      min-width: 200px;
+      padding: 8px 10px;
+      font-size: 10px;
+    }
+
     /* スマホ時：データセットUIが他UIと重ならないようサイズ調整。
        上端ぎりぎり(top:4px)に寄せて表示エリアを最大化、
        横方向は元のレイアウトを維持して横スクロールしやすさを保つ。 */
@@ -452,6 +550,16 @@
 
 <!-- データセット切替（ボタンはJSで動的生成） -->
 <div id="dataset-switch"></div>
+
+<!-- ロード進捗オーバーレイ -->
+<!-- 状態: Loading (tileset.json取得中) → Rendering (タイル本体ロード中) → Ready (描画完了) -->
+<div id="load-progress" data-state="idle">
+  <div class="lp-row">
+    <span class="lp-stage" id="lp-stage">―</span>
+    <span class="lp-detail" id="lp-detail"></span>
+  </div>
+  <div class="lp-bar"><div class="lp-bar-fill" id="lp-bar-fill"></div></div>
+</div>
 
 <!-- データ提供元クレジット表記。データセットのライセンスに応じて文言を調整してください -->
 <div id="credit">
@@ -900,7 +1008,8 @@ for (let i = 0; i < 2; i++) {
 // errorTarget と downloadQueue.maxJobs を、現在のスライダー値に基づき適用する。
 // (旧バージョンにあった「VR中だけ別設定」「優先モード」は、schedulingCallbackの
 //  差し替え対応で不要になったため削除済み)
-const DOWNLOAD_MAX_JOBS = 16;
+// DOWNLOAD_MAX_JOBS はネットワークプロファイルにより動的に変わるため let。
+let DOWNLOAD_MAX_JOBS = 16;
 function applyActiveTilesSettings() {
   if (!tiles) return;
   tiles.errorTarget = lodErrorTarget;
@@ -1297,6 +1406,10 @@ async function prefetchAll(urls, concurrency = 6) {
   updatePrefetchUI();
 }
 
+// プリフェッチ実行前の確認ダイアログを出すタイル数の閾値。
+// これより少ない場合は確認を省略する(軽いデータなら煩わしくない)。
+const PREFETCH_CONFIRM_THRESHOLD = 100;
+
 async function startPrefetch() {
   if (prefetchState.running) return;
   if (!currentDataset) {
@@ -1312,10 +1425,45 @@ async function startPrefetch() {
   const collected = new Set();
 
   prefetchSetStatus('collecting...');
+  // ボタン表示も「収集中」状態に
+  updatePrefetchUI();
   await collectTileUris(rootUrl, collected);
   if (prefetchState.cancel) {
     prefetchSetStatus('cancelled');
     prefetchState.running = false;
+    updatePrefetchUI();
+    return;
+  }
+
+  // ── 確認ダイアログ ──
+  // 推定サイズはタイル仕様上正確には取れないので「タイル数」と
+  // 「目安サイズ(1タイル≒平均0.5MB と仮定)」を伝える。
+  // 軽いデータ(閾値未満)では確認を省略する。
+  if (collected.size >= PREFETCH_CONFIRM_THRESHOLD) {
+    const tileCount = collected.size;
+    const estMB = Math.round(tileCount * 0.5); // 平均0.5MB仮定の概算
+    const msg =
+      `PREFETCH 確認\n\n` +
+      `タイル数: 約 ${tileCount} 件\n` +
+      `推定サイズ: 約 ${estMB} MB(平均0.5MB/タイル想定の概算)\n\n` +
+      `多量のデータをダウンロードし、ブラウザのHTTPキャッシュに乗せます。\n` +
+      `モバイル回線では通信量が大きくなる場合があります。\n\n` +
+      `実行しますか?`;
+    // window.confirm はモーダルブロッキング。
+    // 注: iOS Safari等ではユーザ操作起因の同期confirm以外がブロックされる可能性あり。
+    const ok = window.confirm(msg);
+    if (!ok) {
+      prefetchSetStatus('cancelled');
+      prefetchState.running = false;
+      updatePrefetchUI();
+      return;
+    }
+  }
+  // 念のため、ダイアログ中にユーザが他データに切替た等でキャンセル要求が来ていないか再確認
+  if (prefetchState.cancel) {
+    prefetchSetStatus('cancelled');
+    prefetchState.running = false;
+    updatePrefetchUI();
     return;
   }
 
@@ -1371,6 +1519,116 @@ function updatePrefetchUI() {
   }
 }
 
+// ────────────────────────────────────────────────────────────
+// ロード進捗管理
+// ────────────────────────────────────────────────────────────
+// 状態遷移:
+//   idle      … 何も読込んでいない / 完了後の非表示状態
+//   loading   … tileset.json 取得中(load-tile-set イベント発火まで)
+//   rendering … タイル本体の取得・parse・描画中
+//   ready     … 十分な数のタイルが可視になった (2秒表示してidleへ)
+//
+// "ready" 判定:
+//   ・downloadQueue / parseQueue が空
+//   ・displayActiveTiles > 0 (1つでも描画されている)
+//   ・上記の状態が READY_HOLD_FRAMES フレーム連続で成立
+const READY_HOLD_FRAMES = 30; // 約0.5秒の安定期間
+const READY_LINGER_MS  = 1800; // "Ready" 表示を見せる時間
+const progressState = {
+  stage: 'idle',        // 'idle' | 'loading' | 'rendering' | 'ready'
+  readyStableFrames: 0, // 連続して ready条件を満たしたフレーム数
+  readyTimer: null,     // ready→idle に戻すタイマーID
+  bytesAtSwitch: 0,     // データセット切替時点の lruCache.byteSize 値(基準)
+};
+const progressEl = () => document.getElementById('load-progress');
+const progressStageEl  = () => document.getElementById('lp-stage');
+const progressDetailEl = () => document.getElementById('lp-detail');
+const progressBarFillEl = () => document.getElementById('lp-bar-fill');
+
+function setProgressStage(stage) {
+  if (progressState.stage === stage) return;
+  progressState.stage = stage;
+  const el = progressEl();
+  if (!el) return;
+  el.setAttribute('data-state', stage);
+  const stageLabel = {
+    idle:      '',
+    loading:   'LOADING',
+    rendering: 'RENDERING',
+    ready:     'READY',
+  }[stage] || '';
+  if (progressStageEl()) progressStageEl().textContent = stageLabel;
+  if (stage === 'ready') {
+    // 2秒後に idle に戻してフェードアウト
+    clearTimeout(progressState.readyTimer);
+    progressState.readyTimer = setTimeout(() => setProgressStage('idle'), READY_LINGER_MS);
+  } else if (stage !== 'idle') {
+    // ready以外への遷移ではタイマーを取り消す(rendering→readyの遷移途中など)
+    clearTimeout(progressState.readyTimer);
+    progressState.readyTimer = null;
+  }
+}
+
+// 受信バイト量を MB / KB / GB 単位の見やすい文字列に
+function formatBytes(b) {
+  if (!Number.isFinite(b) || b <= 0) return '0 KB';
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+// 毎フレーム呼ぶ進捗UI更新。rendering⇄ready の判定もここで行う。
+function updateLoadProgress() {
+  const stage = progressState.stage;
+  if (stage === 'idle' || stage === 'loading') {
+    // idle: 何もしない / loading: tileset.json 取得中は不確定アニメーション(CSS側)
+    return;
+  }
+  if (!tiles) return;
+
+  // タイル数の取得 (バージョン差異吸収)
+  const dlQueue = tiles.downloadQueue?.items?.length ?? tiles.downloadQueue?.callbacks?.size ?? 0;
+  const parseQ  = tiles.parseQueue?.items?.length    ?? tiles.parseQueue?.callbacks?.size    ?? 0;
+  const visible = tiles.visibleTiles?.size ?? 0;
+  const active  = tiles.activeTiles?.size  ?? 0;
+  // 受信バイト量 (LRUキャッシュの byteSize は load後加算、evict時減少)
+  const cacheBytes = tiles.lruCache?.byteSize ?? 0;
+  // 切替直後を基準にした「今回のロードで増えたバイト量」
+  const sessionBytes = Math.max(0, cacheBytes - progressState.bytesAtSwitch);
+
+  // 詳細表示
+  const detail = `tiles: ${active} active / ${visible} visible · queue: ${dlQueue + parseQ} · ${formatBytes(sessionBytes)}`;
+  const dEl = progressDetailEl();
+  if (dEl) dEl.textContent = detail;
+
+  // 進捗バー: rendering中はキュー残量を視覚化
+  //   完了率 = 描画済み / (描画済み + 残りキュー)  だが、最大値が動くので
+  //   かわりに「(active) / (active + dl + parse)」で近似
+  const total = active + dlQueue + parseQ;
+  const ratio = total > 0 ? (active / total) : 0;
+  const fill = progressBarFillEl();
+  if (fill && stage === 'rendering') {
+    fill.style.width = `${Math.max(5, Math.min(100, ratio * 100))}%`;
+    fill.style.animation = 'none'; // 確定進捗に切替え
+  }
+
+  // rendering → ready 判定
+  if (stage === 'rendering') {
+    const isQueueIdle = (dlQueue === 0 && parseQ === 0);
+    const hasContent  = active > 0;
+    if (isQueueIdle && hasContent) {
+      progressState.readyStableFrames++;
+      if (progressState.readyStableFrames >= READY_HOLD_FRAMES) {
+        if (fill) fill.style.width = '100%';
+        setProgressStage('ready');
+      }
+    } else {
+      progressState.readyStableFrames = 0;
+    }
+  }
+}
+
+
 function loadTileset(id) {
   if (id === currentDataset || id === loadingDataset) return;
 
@@ -1381,12 +1639,28 @@ function loadTileset(id) {
   // ステータスもリセット
   prefetchSetStatus('idle');
 
+  // ── ロード進捗 reset & "loading" 状態に遷移 ──
+  setProgressStage('loading');
+  progressState.readyStableFrames = 0;
+  progressState.bytesAtSwitch = 0; // 古い tiles はこの後 dispose するのでリセット
+  if (progressDetailEl()) progressDetailEl().textContent = '';
+  if (progressBarFillEl()) {
+    progressBarFillEl().style.width = '';     // CSS既定(不確定アニメ)に戻す
+    progressBarFillEl().style.animation = ''; // CSS既定(不確定アニメ)に戻す
+  }
+
   // 既存のtilesを破棄
   if (tiles) {
     scene.remove(tiles.group);
+    // 各マテリアルを明示的に dispose(自作シェーダのテクスチャ等を確実に解放)
+    pointMaterials.forEach(mat => {
+      if (mat && typeof mat.dispose === 'function') mat.dispose();
+    });
+    pointMaterials.clear();
+    // 3D Tiles Renderer 本体 dispose
+    // (lruCacheの全タイル content.scene の dispose は内部で行われる)
     tiles.dispose();
     tiles = null;
-    pointMaterials.clear();
     _tilesCameraRegistered = false;
     _vrEyeCamerasRegistered = false;
     _vrEyeCams.length = 0;
@@ -1481,6 +1755,13 @@ function loadTileset(id) {
     currentDataset = id;
     loadingDataset = null;
     updateDatasetButtons();
+
+    // ── loading → rendering 状態遷移 ──
+    // tileset.json は取得済、ここからタイル本体のロード&描画フェーズ。
+    // lruCache.byteSize の現在値を基準として保存し、増分を「今回のロード受信量」とする。
+    progressState.bytesAtSwitch = tiles.lruCache?.byteSize ?? 0;
+    progressState.readyStableFrames = 0;
+    setProgressStage('rendering');
   });
 
   tiles.addEventListener('load-error', (e) => {
@@ -1488,6 +1769,8 @@ function loadTileset(id) {
     if (loadingDataset === id) {
       loadingDataset = null;
       updateDatasetButtons();
+      // 進捗オーバーレイも閉じる
+      setProgressStage('idle');
     }
   });
 
@@ -1518,11 +1801,25 @@ function buildDatasetButtons() {
 }
 
 function updateDatasetButtons() {
+  const loading = loadingDataset != null;
+  // コンテナにロード状態クラス(CSSで他ボタンを薄くする)
+  datasetSwitch.classList.toggle('is-loading', loading);
+
   datasetSwitch.querySelectorAll('.dataset-btn').forEach(btn => {
     const id = btn.dataset.id;
     btn.classList.toggle('active', id === currentDataset);
     btn.classList.toggle('loading', id === loadingDataset);
+    // ロード中: ロード対象以外の全ボタンを disabled に
+    btn.disabled = loading && id !== loadingDataset;
   });
+
+  // プリフェッチボタンもロード中は無効(別データセットへの切替と相互排他)
+  const pbtn = document.getElementById('prefetch-btn');
+  if (pbtn) {
+    // 既にプリフェッチ実行中の "CANCEL" 状態だけは押せるようにする
+    const isPrefetchRunning = prefetchState.running;
+    pbtn.disabled = loading && !isPrefetchRunning;
+  }
 }
 
 // CSVを読み込んでからUIを構築 & 初期ロード
@@ -1737,6 +2034,126 @@ prefetchBtn.addEventListener('click', () => {
   }
 });
 
+// ────────────────────────────────────────────────────────────
+// ネットワーク/端末プロファイル(自動チューニング)
+// ────────────────────────────────────────────────────────────
+// 目的: 重いデータ + 遅い回線 + 低スペック端末 でも破綻しないよう、
+//      LOD ERROR TARGET / DOWNLOAD_MAX_JOBS / CACHE TILES / CACHE MB の
+//      初期値を自動で適切なプロファイルに振り分ける。
+//
+// 利用情報:
+//   ・navigator.connection.effectiveType / downlink / saveData
+//   ・navigator.hardwareConcurrency (論理CPUコア数)
+//   ・navigator.deviceMemory       (RAM GB)
+//   ・isTouchDevice                (スマホかどうか)
+//
+// プロファイル定義:
+//   low   … 低速モバイル / saveDataオン / 低スペック
+//   mid   … 3G〜中位スマホ / 4コア以下
+//   high  … 4G〜PC(現状のデフォルト相当)
+//   ultra … 高速回線 & ハイエンドPC
+//
+// URLパラメータ ?profile=low|mid|high|ultra で強制指定可能(デバッグ用)。
+// ユーザがスライダーを動かしたら以後 manual モードとして、自動再判定しない。
+const PROFILES = {
+  low:   { lod: 40, jobs:  4, tiles:  400, mb:  256, label: 'Low'   },
+  mid:   { lod: 30, jobs:  8, tiles:  800, mb:  512, label: 'Mid'   },
+  high:  { lod: 20, jobs: 16, tiles: 1500, mb: 1024, label: 'High'  },
+  ultra: { lod: 15, jobs: 24, tiles: 3000, mb: 2048, label: 'Ultra' },
+};
+
+function detectAutoProfile() {
+  // URLで強制指定があれば最優先
+  const forced = new URLSearchParams(location.search).get('profile');
+  if (forced && PROFILES[forced]) {
+    return { key: forced, reason: 'URL ?profile=' + forced };
+  }
+
+  const conn  = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const cores = navigator.hardwareConcurrency || 0;
+  const mem   = navigator.deviceMemory || 0; // GB (Safari未対応)
+  const eType = conn && conn.effectiveType;  // '4g' | '3g' | '2g' | 'slow-2g'
+  const dl    = conn && conn.downlink;       // Mbps
+  const save  = conn && conn.saveData;
+
+  // 1. データセーバー / 極端な低速回線 → Low
+  if (save || eType === 'slow-2g' || eType === '2g') {
+    return { key: 'low', reason: 'slow connection or save-data' };
+  }
+  // 2. 3G or タッチデバイスでコア4以下 → Mid
+  if (eType === '3g' || (isTouchDevice && cores > 0 && cores <= 4)) {
+    return { key: 'mid', reason: '3G or low-core touch device' };
+  }
+  // 3. ハイエンド条件: 4G+ で downlink >= 20Mbps かつ コア >= 8 かつ memory >= 8GB
+  if ((eType === '4g' || !eType) && dl && dl >= 20 && cores >= 8 && (!mem || mem >= 8)) {
+    return { key: 'ultra', reason: 'fast network + high-end device' };
+  }
+  // 4. デフォルト → High
+  return {
+    key: 'high',
+    reason: conn ? `${eType || '4g'} connection` : 'navigator.connection unavailable',
+  };
+}
+
+// プロファイルが手動で上書きされたかのフラグ。
+// 一度でもユーザがスライダーを動かしたら true になり、以後自動再判定しない。
+let profileManuallyOverridden = false;
+
+function applyProfile(key) {
+  const p = PROFILES[key];
+  if (!p) return;
+  // 各スライダーの value を書き換え、input イベントを発火させて既存ハンドラを動かす
+  // (内部変数 lodErrorTarget / cacheMaxTiles / cacheMaxBytesMB も同時に反映される)
+  lodSlider.value = String(p.lod);
+  lodSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  cacheTilesSlider.value = String(p.tiles);
+  cacheTilesSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  cacheBytesSlider.value = String(p.mb);
+  cacheBytesSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  // downloadMaxJobs はスライダーがないので直接書き換え
+  DOWNLOAD_MAX_JOBS = p.jobs;
+  if (tiles) applyActiveTilesSettings();
+}
+
+// プロファイルを判定して適用 & UI表示
+const autoProfile = detectAutoProfile();
+applyProfile(autoProfile.key);
+console.log(`Auto profile: ${autoProfile.key} (${autoProfile.reason})`);
+
+// コントロールパネル本体の先頭に "Auto: ..." バッジを差し込む
+(function injectProfileBadge() {
+  const body = document.getElementById('controls-body');
+  if (!body) return;
+  const badge = document.createElement('div');
+  badge.id = 'profile-badge';
+  badge.style.cssText = `
+    margin: 0 0 10px 0;
+    padding: 4px 8px;
+    border: 1px solid rgba(0,200,255,0.3);
+    border-radius: 3px;
+    font-size: 10px;
+    color: #7fc8e0;
+    letter-spacing: 0.5px;
+    background: rgba(0,200,255,0.06);
+  `;
+  const label = PROFILES[autoProfile.key].label;
+  badge.innerHTML = `Auto: <b style="color:#00c8ff">${label}</b>` +
+    ` <span style="opacity:0.6">(${autoProfile.reason})</span>`;
+  body.insertBefore(badge, body.firstChild);
+  // ユーザがスライダーを動かしたら "manual" に切替表示
+  const watch = (slider) => {
+    slider.addEventListener('input', () => {
+      if (!profileManuallyOverridden) {
+        profileManuallyOverridden = true;
+        badge.innerHTML = `Manual <span style="opacity:0.6">(auto was ${label})</span>`;
+        badge.style.borderColor = 'rgba(255,200,80,0.4)';
+        badge.style.background  = 'rgba(255,200,80,0.06)';
+      }
+    }, { once: false });
+  };
+  [lodSlider, cacheTilesSlider, cacheBytesSlider].forEach(watch);
+})();
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -1863,6 +2280,9 @@ renderer.setAnimationLoop(() => {
     // (VR時はworldを直接書いた値、非VR時は階層から計算された値)
     tiles.update();
   }
+
+  // ロード進捗UIの更新(rendering⇄ready 判定もここで行う)
+  updateLoadProgress();
 
   // 描画
   renderer.render(scene, camera);
