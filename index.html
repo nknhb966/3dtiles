@@ -48,8 +48,113 @@
       color: rgba(200,221,232,0.5);
       font-family: sans-serif; font-size: 10px;
       z-index: 100;
+      max-width: calc(100vw - 16px);
     }
     #credit a { color: inherit; text-decoration: underline; }
+
+    /* クレジット行の ⓘ ボタン。既存 .ctrl-info より小ぶり(クレジット行の高さに馴染ませる) */
+    #credit-info-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      margin-left: 4px;
+      padding: 0;
+      border: 1px solid rgba(200,221,232,0.4);
+      border-radius: 50%;
+      background: transparent;
+      color: rgba(200,221,232,0.6);
+      font-size: 9px;
+      font-family: inherit;
+      line-height: 1;
+      cursor: pointer;
+      vertical-align: middle;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    #credit-info-btn:hover,
+    #credit-info-btn[aria-expanded="true"] {
+      background: rgba(0,200,255,0.2);
+      color: #fff;
+      border-color: #00c8ff;
+    }
+
+    /* ライセンス詳細パネル(画面中央のモーダル風オーバーレイ) */
+    #credit-info {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(0,0,0,0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      /* タップでパネル外をクリック→閉じる用 */
+      cursor: pointer;
+    }
+    #credit-info[hidden] {
+      display: none;
+    }
+    #credit-info .credit-info-inner {
+      max-width: 480px;
+      width: 100%;
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: rgba(10,12,16,0.95);
+      border: 1px solid rgba(0,200,255,0.4);
+      border-radius: 6px;
+      color: #c8e0ec;
+      font-family: sans-serif;
+      font-size: 12px;
+      line-height: 1.6;
+      backdrop-filter: blur(10px);
+      cursor: default;
+    }
+    #credit-info .credit-info-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(0,200,255,0.25);
+      color: #00c8ff;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    #credit-info #credit-info-close {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid rgba(0,200,255,0.4);
+      border-radius: 50%;
+      background: transparent;
+      color: #00c8ff;
+      font-size: 11px;
+      font-family: inherit;
+      line-height: 1;
+      cursor: pointer;
+    }
+    #credit-info #credit-info-close:hover {
+      background: rgba(0,200,255,0.2);
+    }
+    #credit-info .credit-info-body {
+      padding: 12px 14px 14px;
+    }
+    #credit-info .credit-info-body p {
+      margin: 0 0 10px 0;
+    }
+    #credit-info .credit-info-body p:last-child {
+      margin-bottom: 0;
+    }
+    #credit-info .credit-info-body a {
+      color: #00c8ff;
+      text-decoration: underline;
+    }
+    /* スマホ時のクレジット行は折り返しを許可し、文字も少し小さく */
+    body.touch #credit {
+      font-size: 9px;
+      line-height: 1.4;
+    }
 
     /* ── スマホ用タッチUI ─────────────────────── */
     /* デフォルトは非表示。ID付き要素の display を確実に上書きするため !important */
@@ -677,8 +782,43 @@
 </div>
 
 <!-- データ提供元クレジット表記。データセットのライセンスに応じて文言を調整してください -->
+<!-- OSSライブラリのライセンス表記 (Apache-2.0 のCaltech/JPL, Google, MITのthree.js) も含める。
+     詳細は ⓘ ボタンから別ダイアログで表示する。 -->
 <div id="credit">
   3D Tiles データ: 産業技術総合研究所 (AIST) / gsvrg.ipri.aist.go.jp
+  &nbsp;|&nbsp;
+  Built with
+  <a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>,
+  <a href="https://github.com/NASA-AMMOS/3DTilesRendererJS" target="_blank" rel="noopener">3D Tiles Renderer</a>,
+  <a href="https://google.github.io/draco/" target="_blank" rel="noopener">Draco</a>
+  <button type="button" id="credit-info-btn" aria-label="ライセンス詳細" aria-expanded="false" aria-controls="credit-info">ⓘ</button>
+</div>
+
+<!-- ライセンス詳細ダイアログ。クレジットの ⓘ ボタンで開閉。
+     Apache-2.0 のライセンス通知保持義務に応えるための表記。 -->
+<div id="credit-info" hidden>
+  <div class="credit-info-inner">
+    <div class="credit-info-header">
+      <span>Open Source Licenses</span>
+      <button type="button" id="credit-info-close" aria-label="閉じる">✕</button>
+    </div>
+    <div class="credit-info-body">
+      <p>
+        <b>three.js</b> (MIT License)<br>
+        © three.js authors. <a href="https://github.com/mrdoob/three.js/blob/master/LICENSE" target="_blank" rel="noopener">LICENSE</a>
+      </p>
+      <p>
+        <b>3D Tiles Renderer</b> (Apache License 2.0)<br>
+        © 2020 California Institute of Technology. ALL RIGHTS RESERVED.<br>
+        United States Government Sponsorship Acknowledged.<br>
+        <a href="https://github.com/NASA-AMMOS/3DTilesRendererJS/blob/master/LICENSE" target="_blank" rel="noopener">LICENSE</a>
+      </p>
+      <p>
+        <b>Draco</b> (Apache License 2.0)<br>
+        © Google Inc. <a href="https://github.com/google/draco/blob/main/LICENSE" target="_blank" rel="noopener">LICENSE</a>
+      </p>
+    </div>
+  </div>
 </div>
 
 <!-- スマホ用タッチUI -->
@@ -2429,6 +2569,36 @@ document.addEventListener('click', (e) => {
   // ※ 現状のスマホ実装では top は固定 (#dataset-switch の真下) で、
   //   高さ変化は max-height + overflow-y: auto の縦スクロールで吸収される。
 });
+
+// ── ライセンス詳細パネル開閉 ──
+// クレジット行の ⓘ ボタンで開く、✕ボタンまたはパネル外クリックで閉じる、Escでも閉じる。
+(function setupCreditInfo() {
+  const btn   = document.getElementById('credit-info-btn');
+  const panel = document.getElementById('credit-info');
+  const close = document.getElementById('credit-info-close');
+  if (!btn || !panel || !close) return;
+  const open = () => {
+    panel.removeAttribute('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+  };
+  const hide = () => {
+    panel.setAttribute('hidden', '');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (panel.hasAttribute('hidden')) open(); else hide();
+  });
+  close.addEventListener('click', (e) => { e.stopPropagation(); hide(); });
+  // パネル背景(=panel自身)クリックで閉じる。内側 .credit-info-inner のクリックは
+  // バブリングするが、inner要素自身のクリックでは閉じないよう event.target で判定。
+  panel.addEventListener('click', (e) => {
+    if (e.target === panel) hide();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !panel.hasAttribute('hidden')) hide();
+  });
+})();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
