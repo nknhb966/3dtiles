@@ -250,16 +250,53 @@
     }
 
     /* ── #controls 折りたたみ機構（スマホ用）─────────────── */
-    /* PC時(スマホでない時)は固定幅で、ⓘ説明文が長くてもパネル幅が暴れないようにする。
-       スライダー幅 160px + padding 32px + α を基準に 220px。
-       body.touch のルールで width: auto に戻し、スマホでは中身に合わせて縮む。 */
+    /* PC時(スマホでない時)の #controls:
+         ・固定幅 330px。スライダーや説明文が読みやすい幅で、ⓘ説明文が長くても
+           パネル幅が暴れない。
+         ・画面高さに対して max-height を設定し、収まらない場合は本体側を縦スクロール。
+           top: 80px(インラインstyle) + 下端マージン 16px を画面高から引く。
+       body.touch のルールで width/max-height は上書きされ、スマホ用挙動が維持される。 */
     #controls {
-      width: 220px;
+      width: 330px;
+      max-height: calc(100vh - 96px);
+      /* 全体は overflow:hidden にし、内部の #controls-body だけをスクロール領域にする。
+         (こうするとパディング/ボーダー越しのスクロールバー位置になり見栄えが安定) */
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    #controls #controls-body {
+      /* PC時のスクロール可能領域。インラインの padding は #controls 全体に効いているので、
+         こちらは padding 0 でよい。max-height は親(#controls)側で抑える。 */
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      /* スクロールバーをパネルの配色に合わせる */
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0,200,255,0.5) transparent;
+    }
+    #controls #controls-body::-webkit-scrollbar {
+      width: 6px;
+    }
+    #controls #controls-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    #controls #controls-body::-webkit-scrollbar-thumb {
+      background: rgba(0,200,255,0.5);
+      border-radius: 3px;
     }
     #controls .ctrl-info-body {
       /* 長い説明文をパネル幅内で折り返す */
       word-break: break-word;
       overflow-wrap: anywhere;
+    }
+    /* PC時のスライダーとプレフェッチボタンを、新しいパネル幅に合わせて広げる。
+       パネル幅330 − padding32 − スクロールバー余白12 ≒ 286px が利用可能幅。
+       240px に統一(余白も適度に確保)。 */
+    #controls input[type="range"] {
+      width: 240px;
+    }
+    #controls #prefetch-btn {
+      width: 240px;
     }
 
     /* ヘッダーは常時 display:none（PC時は出さない） */
@@ -278,6 +315,12 @@
       width: auto;
       max-width: calc(100vw - 8px);
       background: rgba(0,0,0,0.4);
+      /* PC用に #controls に入れた max-height/overflow/display:flex はスマホでは不要。
+         スマホ側は #controls-header と #controls-body の縦並びを既存ルールで実現しており、
+         スクロール領域も body.touch #controls-body 側で別途定義されている。 */
+      max-height: none;
+      overflow: visible;
+      display: block;
     }
     body.touch #controls-header {
       display: flex;
