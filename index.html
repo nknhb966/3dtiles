@@ -316,6 +316,70 @@
       pointer-events: none;
     }
 
+    /* ── コントロールパネル内 各設定項目の共通スタイル ── */
+    .ctrl-group {
+      margin-bottom: 12px;
+    }
+    .ctrl-group:first-of-type {
+      margin-top: 0;
+    }
+    .ctrl-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      letter-spacing: 1px;
+      font-weight: bold;
+    }
+    /* ⓘ 情報アイコンボタン */
+    .ctrl-info {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 1px solid rgba(0,200,255,0.4);
+      border-radius: 50%;
+      background: transparent;
+      color: rgba(0,200,255,0.75);
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: bold;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+      flex-shrink: 0;
+    }
+    .ctrl-info:hover,
+    .ctrl-info[aria-expanded="true"] {
+      background: rgba(0,200,255,0.2);
+      color: #fff;
+      border-color: #00c8ff;
+    }
+    /* 説明文ブロック (デフォルトhidden、aria-expanded=true で表示) */
+    .ctrl-info-body {
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: rgba(0,200,255,0.07);
+      border-left: 2px solid rgba(0,200,255,0.5);
+      border-radius: 3px;
+      font-size: 10.5px;
+      font-weight: normal;
+      letter-spacing: 0.2px;
+      color: rgba(220,235,245,0.92);
+      line-height: 1.55;
+    }
+    .ctrl-info-body[hidden] {
+      display: none;
+    }
+    /* スマホでは説明文サイズと余白を少しコンパクトに */
+    body.touch .ctrl-info-body {
+      font-size: 10px;
+      padding: 6px 8px;
+      line-height: 1.45;
+    }
+
     /* ── ロード進捗オーバーレイ ── */
     #load-progress {
       position: fixed;
@@ -479,71 +543,138 @@
 
   <!-- 本体 -->
   <div id="controls-body">
-  <div id="size-row">
-  <div style="margin-bottom:8px; letter-spacing:1px; font-weight:bold;">POINT SIZE</div>
-  <input id="size-slider" type="range" min="1" max="80" step="1" value="5"
-    style="width:160px; accent-color:#00c8ff;">
-  <div style="font-family:monospace; margin-top:4px;">
-    <span id="size-val">5</span>
-  </div>
+
+  <!-- POINT SIZE -->
+  <div id="size-row" class="ctrl-group">
+    <div class="ctrl-label">
+      <span>POINT SIZE</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-size">ⓘ</button>
+    </div>
+    <input id="size-slider" type="range" min="1" max="80" step="1" value="5"
+      style="width:160px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="size-val">5</span>
+    </div>
+    <div id="info-size" class="ctrl-info-body" hidden>
+      1点を1辺 [値×1mm] の立方体として描画するサイズ。
+      小さいほど精細だが、点同士の隙間が目立ちやすい。
+      大きいほど隙間が埋まり遠景が見やすくなるが、塊感が強くなる。
+    </div>
   </div>
 
-  <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">WORLD SCALE</div>
-  <input id="scale-slider" type="range" min="0.5" max="3.0" step="0.1" value="1.0"
-    style="width:160px; accent-color:#00c8ff;">
-  <div style="font-family:monospace; margin-top:4px;">
-    <span id="scale-val">1.0</span>×
-    <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
-      (1.0=実寸 / VR用に拡大)
-    </span>
+  <!-- WORLD SCALE -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>WORLD SCALE</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-scale">ⓘ</button>
+    </div>
+    <input id="scale-slider" type="range" min="0.5" max="3.0" step="0.1" value="1.0"
+      style="width:160px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="scale-val">1.0</span>×
+      <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
+        (1.0=実寸 / VR用に拡大)
+      </span>
+    </div>
+    <div id="info-scale" class="ctrl-info-body" hidden>
+      世界の大きさを変える倍率。1.0 が実寸(メートル単位そのまま)。
+      VRで「小さく感じる」場合は 1.5〜2.0倍に上げると体感が改善する。
+      視点(カメラ)位置を中心に拡縮するので、目の前のものが視野から外れない。
+    </div>
   </div>
 
-  <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">LOD ERROR TARGET</div>
-  <input id="lod-slider" type="range" min="8" max="80" step="1" value="20"
-    style="width:160px; accent-color:#00c8ff;">
-  <div style="font-family:monospace; margin-top:4px;">
-    <span id="lod-val">20</span>
-    <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
-      (低=高詳細/重い)
-    </span>
+  <!-- LOD ERROR TARGET -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>LOD ERROR TARGET</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-lod">ⓘ</button>
+    </div>
+    <input id="lod-slider" type="range" min="8" max="80" step="1" value="20"
+      style="width:160px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="lod-val">20</span>
+      <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
+        (低=高詳細/重い)
+      </span>
+    </div>
+    <div id="info-lod" class="ctrl-info-body" hidden>
+      表示詳細度のしきい値(画面上の許容誤差ピクセル)。
+      低いほど高精細なタイルが読み込まれるが、ダウンロード量と描画負荷が増える。
+      VRでカクつく時は値を上げ、PCで綺麗に見たい時は下げる。
+      目安: VR=20前後 / ハイエンドPC=10前後 / 低速モバイル=40前後。
+    </div>
   </div>
 
-  <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">CACHE TILES</div>
-  <input id="cache-tiles-slider" type="range" min="300" max="8000" step="100" value="2000"
-    style="width:160px; accent-color:#00c8ff;">
-  <div style="font-family:monospace; margin-top:4px;">
-    <span id="cache-tiles-val">2000</span>
-    <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
-      tiles (上限)
-    </span>
+  <!-- CACHE TILES -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>CACHE TILES</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-cache-tiles">ⓘ</button>
+    </div>
+    <input id="cache-tiles-slider" type="range" min="300" max="8000" step="100" value="2000"
+      style="width:160px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="cache-tiles-val">2000</span>
+      <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
+        tiles (上限)
+      </span>
+    </div>
+    <div id="info-cache-tiles" class="ctrl-info-body" hidden>
+      メモリ上に保持しておくタイル数の上限。
+      多いほど一度訪れた場所に戻った時の再ダウンロードが減って快適になるが、
+      RAM消費が増える。VRで街を歩き回って戻るような体験なら大きめが有利。
+      CACHE MEMORY と合わせて、どちらかの上限に達したら古いタイルから破棄される。
+    </div>
   </div>
 
-  <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">CACHE MEMORY</div>
-  <input id="cache-bytes-slider" type="range" min="256" max="4096" step="128" value="1536"
-    style="width:160px; accent-color:#00c8ff;">
-  <div style="font-family:monospace; margin-top:4px;">
-    <span id="cache-bytes-val">1536</span>
-    <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
-      MB (上限)
-    </span>
+  <!-- CACHE MEMORY -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>CACHE MEMORY</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-cache-mb">ⓘ</button>
+    </div>
+    <input id="cache-bytes-slider" type="range" min="256" max="4096" step="128" value="1536"
+      style="width:160px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="cache-bytes-val">1536</span>
+      <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
+        MB (上限)
+      </span>
+    </div>
+    <div id="info-cache-mb" class="ctrl-info-body" hidden>
+      タイルキャッシュに割り当てるメモリ上限(MB)。
+      ハイエンドPCで重いデータを扱う場合は 2GB〜3GB程度まで上げると体感が向上。
+      モバイル/Quest等では 512MB前後が安全圏(超えるとブラウザに強制終了されることがある)。
+    </div>
   </div>
 
-  <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">PREFETCH</div>
-  <button id="prefetch-btn" style="
-    width: 160px;
-    padding: 8px;
-    background: transparent;
-    border: 1px solid rgba(0,200,255,0.6);
-    color: #00c8ff;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 1px;
-    border-radius: 3px;
-    cursor: pointer;
-  ">START PREFETCH</button>
-  <div style="font-family:monospace; margin-top:4px; font-size:10px;">
-    <span id="prefetch-status">idle</span>
+  <!-- PREFETCH -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>PREFETCH</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-prefetch">ⓘ</button>
+    </div>
+    <button id="prefetch-btn" style="
+      width: 160px;
+      padding: 8px;
+      background: transparent;
+      border: 1px solid rgba(0,200,255,0.6);
+      color: #00c8ff;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      border-radius: 3px;
+      cursor: pointer;
+    ">START PREFETCH</button>
+    <div style="font-family:monospace; margin-top:4px; font-size:10px;">
+      <span id="prefetch-status">idle</span>
+    </div>
+    <div id="info-prefetch" class="ctrl-info-body" hidden>
+      現在のデータセットの全タイルを先読みしてブラウザのキャッシュに乗せる機能。
+      VR突入前など、視点移動でカクつかせたくない場合に有効。
+      タイル数が多いと相応の通信量と時間がかかる(実行前に確認ダイアログが出る)。
+    </div>
   </div>
   </div>
 </div>
@@ -2159,6 +2290,32 @@ console.log(`Auto profile: ${autoProfile.key} (${autoProfile.reason})`);
   };
   [lodSlider, cacheTilesSlider, cacheBytesSlider].forEach(watch);
 })();
+
+// ── ⓘ 情報アイコン: クリックで対応する説明文を開閉 ──
+// イベントデリゲーションで .ctrl-info ボタン全部を一括処理。
+// aria-controls 属性で指定された要素を hidden トグルし、
+// aria-expanded を同期させる。
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.ctrl-info');
+  if (!btn) return;
+  const targetId = btn.getAttribute('aria-controls');
+  if (!targetId) return;
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  const willShow = target.hasAttribute('hidden');
+  if (willShow) {
+    target.removeAttribute('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+  } else {
+    target.setAttribute('hidden', '');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+  // スマホ折りたたみコントロールパネルが開いている時にⓘを押すと内容が伸びるので、
+  // 必要なら #controls の top を再計算(positionControlsBelowDatasetSwitchが
+  // 存在する場合のみ。PCでは未定義なので関数存在チェック)。
+  // ※ 現状のスマホ実装では top は固定 (#dataset-switch の真下) で、
+  //   高さ変化は max-height + overflow-y: auto の縦スクロールで吸収される。
+});
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
