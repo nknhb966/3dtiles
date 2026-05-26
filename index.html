@@ -1353,8 +1353,9 @@ function handleVRInput(dt) {
 
     if (hand === 'right') {
       // 右スティック左右：ヨー回転（上下は使わない）
-      // VRでは PC のキー操作より速めに回したいので 1.5倍 + boost倍率
-      targetYawVel -= stickX * TURN_SPEED * 1.5 * boost;
+      // (以前は PC キー操作より速めの 1.5倍にしていたが、実機で速すぎたため
+      //  2/3に落として 1.0倍 = PCキーと同等にする。boost倍率は変わらず乗算)
+      targetYawVel -= stickX * TURN_SPEED * boost;
 
       // 右手 A=buttons[4]:下降, B=buttons[5]:上昇 (boost倍率を乗算)
       if (buttons[4] && buttons[4].pressed) targetVel.y -= VERT_SPEED * boost;
