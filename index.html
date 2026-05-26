@@ -45,27 +45,28 @@
 
     #credit {
       position: fixed; bottom: 8px; left: 8px;
-      color: rgba(200,221,232,0.5);
-      font-family: sans-serif; font-size: 10px;
+      color: rgba(220,235,245,0.75);
+      font-family: sans-serif; font-size: 12px;
       z-index: 100;
       max-width: calc(100vw - 16px);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
     }
     #credit a { color: inherit; text-decoration: underline; }
 
-    /* クレジット行の ⓘ ボタン。既存 .ctrl-info より小ぶり(クレジット行の高さに馴染ませる) */
+    /* クレジット行の ⓘ ボタン。クレジット行の高さに馴染ませる小ぶりサイズ */
     #credit-info-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 14px;
-      height: 14px;
+      width: 18px;
+      height: 18px;
       margin-left: 4px;
       padding: 0;
-      border: 1px solid rgba(200,221,232,0.4);
+      border: 1px solid rgba(220,235,245,0.5);
       border-radius: 50%;
       background: transparent;
-      color: rgba(200,221,232,0.6);
-      font-size: 9px;
+      color: rgba(220,235,245,0.8);
+      font-size: 11px;
       font-family: inherit;
       line-height: 1;
       cursor: pointer;
@@ -74,12 +75,13 @@
     }
     #credit-info-btn:hover,
     #credit-info-btn[aria-expanded="true"] {
-      background: rgba(0,200,255,0.2);
+      background: rgba(0,200,255,0.25);
       color: #fff;
       border-color: #00c8ff;
     }
 
-    /* ライセンス詳細パネル(画面中央のモーダル風オーバーレイ) */
+    /* ライセンス詳細パネル(画面中央のモーダル風オーバーレイ)
+       VRブラウザでも読めるサイズに。文字は14px相当を基準に、見出しは大きく。 */
     #credit-info {
       position: fixed;
       inset: 0;
@@ -88,7 +90,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 16px;
+      padding: 24px;
       /* タップでパネル外をクリック→閉じる用 */
       cursor: pointer;
     }
@@ -96,18 +98,18 @@
       display: none;
     }
     #credit-info .credit-info-inner {
-      max-width: 480px;
+      max-width: 560px;
       width: 100%;
-      max-height: calc(100vh - 32px);
+      max-height: calc(100vh - 48px);
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       background: rgba(10,12,16,0.95);
       border: 1px solid rgba(0,200,255,0.4);
-      border-radius: 6px;
-      color: #c8e0ec;
+      border-radius: 8px;
+      color: #dceaf2;
       font-family: sans-serif;
-      font-size: 12px;
-      line-height: 1.6;
+      font-size: 14px;
+      line-height: 1.65;
       backdrop-filter: blur(10px);
       cursor: default;
     }
@@ -115,21 +117,22 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 14px;
+      padding: 14px 18px;
       border-bottom: 1px solid rgba(0,200,255,0.25);
       color: #00c8ff;
       font-weight: bold;
+      font-size: 16px;
       letter-spacing: 1px;
     }
     #credit-info #credit-info-close {
-      width: 24px;
-      height: 24px;
+      width: 32px;
+      height: 32px;
       padding: 0;
       border: 1px solid rgba(0,200,255,0.4);
       border-radius: 50%;
       background: transparent;
       color: #00c8ff;
-      font-size: 11px;
+      font-size: 14px;
       font-family: inherit;
       line-height: 1;
       cursor: pointer;
@@ -138,13 +141,17 @@
       background: rgba(0,200,255,0.2);
     }
     #credit-info .credit-info-body {
-      padding: 12px 14px 14px;
+      padding: 16px 18px 18px;
     }
     #credit-info .credit-info-body p {
-      margin: 0 0 10px 0;
+      margin: 0 0 14px 0;
     }
     #credit-info .credit-info-body p:last-child {
       margin-bottom: 0;
+    }
+    #credit-info .credit-info-body b {
+      font-size: 15px;
+      color: #ffffff;
     }
     #credit-info .credit-info-body a {
       color: #00c8ff;
@@ -152,7 +159,7 @@
     }
     /* スマホ時のクレジット行は折り返しを許可し、文字も少し小さく */
     body.touch #credit {
-      font-size: 9px;
+      font-size: 11px;
       line-height: 1.4;
     }
 
@@ -243,6 +250,18 @@
     }
 
     /* ── #controls 折りたたみ機構（スマホ用）─────────────── */
+    /* PC時(スマホでない時)は固定幅で、ⓘ説明文が長くてもパネル幅が暴れないようにする。
+       スライダー幅 160px + padding 32px + α を基準に 220px。
+       body.touch のルールで width: auto に戻し、スマホでは中身に合わせて縮む。 */
+    #controls {
+      width: 220px;
+    }
+    #controls .ctrl-info-body {
+      /* 長い説明文をパネル幅内で折り返す */
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
     /* ヘッダーは常時 display:none（PC時は出さない） */
     #controls-header {
       display: none;
@@ -608,7 +627,10 @@
     <b style="color:#ff6b35;">A Button</b> 下降<br>
     <b style="color:#ff6b35;">B Button</b> 上昇<br>
     <b style="color:#ff6b35;">X Button</b> 点を小さく<br>
-    <b style="color:#ff6b35;">Y Button</b> 点を大きく
+    <b style="color:#ff6b35;">Y Button</b> 点を大きく<br>
+    <b style="color:#ff6b35;">R Grip</b> 押すほど移動/回転が高速(最大5倍)<br>
+    <b style="color:#ff6b35;">L Grip + X</b> 点を疎に(密度を下げる)<br>
+    <b style="color:#ff6b35;">L Grip + Y</b> 点を密に(密度を上げる)
   </div>
   <div style="margin:10px 0 6px; letter-spacing:1px; font-weight:bold;">PC CONTROLS</div>
   <div style="color:#c8dde8;">
