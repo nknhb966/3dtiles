@@ -468,7 +468,7 @@
   <div id="controls-header">
     <div id="size-mini">
       <span class="lbl">SIZE</span>
-      <input id="size-mini-slider" type="range" min="1" max="50" step="1" value="5">
+      <input id="size-mini-slider" type="range" min="1" max="80" step="1" value="5">
       <span id="size-mini-val">5</span>
     </div>
     <div id="controls-toggle">
@@ -481,7 +481,7 @@
   <div id="controls-body">
   <div id="size-row">
   <div style="margin-bottom:8px; letter-spacing:1px; font-weight:bold;">POINT SIZE</div>
-  <input id="size-slider" type="range" min="1" max="50" step="1" value="5"
+  <input id="size-slider" type="range" min="1" max="80" step="1" value="5"
     style="width:160px; accent-color:#00c8ff;">
   <div style="font-family:monospace; margin-top:4px;">
     <span id="size-val">5</span>
@@ -499,30 +499,30 @@
   </div>
 
   <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">LOD ERROR TARGET</div>
-  <input id="lod-slider" type="range" min="20" max="50" step="0.1" value="20"
+  <input id="lod-slider" type="range" min="8" max="80" step="1" value="20"
     style="width:160px; accent-color:#00c8ff;">
   <div style="font-family:monospace; margin-top:4px;">
-    <span id="lod-val">20.0</span>
+    <span id="lod-val">20</span>
     <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
       (低=高詳細/重い)
     </span>
   </div>
 
   <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">CACHE TILES</div>
-  <input id="cache-tiles-slider" type="range" min="200" max="5000" step="100" value="1500"
+  <input id="cache-tiles-slider" type="range" min="300" max="8000" step="100" value="2000"
     style="width:160px; accent-color:#00c8ff;">
   <div style="font-family:monospace; margin-top:4px;">
-    <span id="cache-tiles-val">1500</span>
+    <span id="cache-tiles-val">2000</span>
     <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
       tiles (上限)
     </span>
   </div>
 
   <div style="margin:12px 0 8px; letter-spacing:1px; font-weight:bold;">CACHE MEMORY</div>
-  <input id="cache-bytes-slider" type="range" min="128" max="2048" step="64" value="1024"
+  <input id="cache-bytes-slider" type="range" min="256" max="4096" step="128" value="1536"
     style="width:160px; accent-color:#00c8ff;">
   <div style="font-family:monospace; margin-top:4px;">
-    <span id="cache-bytes-val">1024</span>
+    <span id="cache-bytes-val">1536</span>
     <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
       MB (上限)
     </span>
@@ -1258,8 +1258,10 @@ let lodErrorTarget = 20;
 
 // LRUキャッシュ上限：訪問した領域のディテールを保持する量
 // タイル数ベース / バイト数(MB)ベース、両方を上限として併用
-let cacheMaxTiles = 1500;    // タイル数の上限
-let cacheMaxBytesMB = 1024;  // バイト数の上限(MB)
+// ※ ここの値はプロファイル自動判定で上書きされる(applyProfile)。
+//   スライダーのHTML既定値とも整合させて、プロファイル未動作時のフォールバック値とする。
+let cacheMaxTiles = 2000;    // タイル数の上限
+let cacheMaxBytesMB = 1536;  // バイト数の上限(MB)
 
 function applyCacheSettings(t) {
   if (!t || !t.lruCache) return;
@@ -1952,16 +1954,17 @@ function updateSizeSlider() {
   }
 }
 
-// スマホ時の初期値: 30 (PC は HTML 既定値の 5 のまま)
+// スマホ時の初期値: 20 (PC は HTML 既定値の 5 のまま)
+// スマホ表示は遠景でも見やすいよう、ややや大きめの2cm立方体を採用。
 if (isTouchDevice) {
-  sizeSlider.value = '30';
+  sizeSlider.value = '20';
   sizeSlider.dispatchEvent(new Event('input', { bubbles: true }));
   // ミニスライダー表示も更新(updateSizeSliderと同等の処理)
   const miniSlider = document.getElementById('size-mini-slider');
   const miniVal    = document.getElementById('size-mini-val');
   if (miniSlider && miniVal) {
-    miniSlider.value = '30';
-    miniVal.textContent = '30';
+    miniSlider.value = '20';
+    miniVal.textContent = '20';
   }
 }
 
@@ -2000,8 +2003,8 @@ scaleSlider.addEventListener('input', () => {
 const lodSlider = document.getElementById('lod-slider');
 const lodVal = document.getElementById('lod-val');
 lodSlider.addEventListener('input', () => {
-  lodErrorTarget = parseFloat(lodSlider.value);
-  lodVal.textContent = lodErrorTarget.toFixed(1);
+  lodErrorTarget = parseInt(lodSlider.value, 10);
+  lodVal.textContent = String(lodErrorTarget);
   // VR状態/優先モードを加味して反映
   applyActiveTilesSettings();
 });
@@ -2051,15 +2054,18 @@ prefetchBtn.addEventListener('click', () => {
 //   low   … 低速モバイル / saveDataオン / 低スペック
 //   mid   … 3G〜中位スマホ / 4コア以下
 //   high  … 4G〜PC(現状のデフォルト相当)
-//   ultra … 高速回線 & ハイエンドPC
+//   ultra … 高速回線 & ハイエンドPC(ゲーミング)
 //
-// URLパラメータ ?profile=low|mid|high|ultra で強制指定可能(デバッグ用)。
-// ユーザがスライダーを動かしたら以後 manual モードとして、自動再判定しない。
+// 各プロファイルの値は、対応するスライダーの範囲内に収まるよう設定すること。
+//   LOD          range  8 〜 80
+//   DOWNLOAD JOBS        (スライダーなし、内部のみ)
+//   CACHE TILES  range  300 〜 8000
+//   CACHE MB     range  256 〜 4096
 const PROFILES = {
-  low:   { lod: 40, jobs:  4, tiles:  400, mb:  256, label: 'Low'   },
-  mid:   { lod: 30, jobs:  8, tiles:  800, mb:  512, label: 'Mid'   },
-  high:  { lod: 20, jobs: 16, tiles: 1500, mb: 1024, label: 'High'  },
-  ultra: { lod: 15, jobs: 24, tiles: 3000, mb: 2048, label: 'Ultra' },
+  low:   { lod: 40, jobs:  4, tiles:  600, mb:  384, label: 'Low'   },
+  mid:   { lod: 30, jobs:  8, tiles: 1000, mb:  768, label: 'Mid'   },
+  high:  { lod: 20, jobs: 16, tiles: 2000, mb: 1536, label: 'High'  },
+  ultra: { lod: 12, jobs: 24, tiles: 4000, mb: 3072, label: 'Ultra' },
 };
 
 function detectAutoProfile() {
