@@ -562,6 +562,30 @@
     </div>
   </div>
 
+  <!-- POINT DENSITY -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">
+      <span>POINT DENSITY</span>
+      <button type="button" class="ctrl-info" aria-expanded="false" aria-controls="info-density">ⓘ</button>
+    </div>
+    <input id="density-slider" type="range" min="10" max="100" step="5" value="100"
+      style="width:160px; accent-color:#00c8ff;">
+    <div style="font-family:monospace; margin-top:4px;">
+      <span id="density-val">100</span>%
+      <span style="color:rgba(200,221,232,0.6); font-size:10px; margin-left:6px;">
+        (描画する点の割合)
+      </span>
+    </div>
+    <div id="info-density" class="ctrl-info-body" hidden>
+      各タイルの点群のうち何%を描画するかを指定する間引き設定。
+      100%で全点、50%で半分、10%なら1/10だけ描画。
+      タイル自体はそのままなのでメモリ・ダウンロード量は変わらないが、
+      描画コスト(特にGPU負荷)が直線的に下がる。
+      VRでカクつく / ハイエンドPCでも重いデータで滑らかさが欲しい時に下げる。
+      LODと違いタイル境界の粗さが目立たず、均一に薄くなるのが特徴。
+    </div>
+  </div>
+
   <!-- WORLD SCALE -->
   <div class="ctrl-group">
     <div class="ctrl-label">
@@ -1292,6 +1316,32 @@ dracoLoader.setDecoderConfig({ type: 'js' });
 let pointSize = 0.005;
 const pointMaterials = new Set();
 
+// ── 点群密度(間引き)管理 ─────────────────────────
+// pointObjects は描画される THREE.Points インスタンスを追跡するセット。
+// load-model時に追加、loadTileset の dispose時に clear する。
+// pointDensity スライダーで値が変わったら、各 Points の geometry.setDrawRange(0, N)
+// で描画頂点数を絞る。値=1.0 で全点描画、0.5 で半分、0.1 で1/10。
+const pointObjects = new Set();
+let pointDensity = 1.0;  // 0.1〜1.0
+
+function applyPointDensity(points) {
+  // 単一のPointsまたは全Pointsに setDrawRange を適用するヘルパー。
+  // 引数なしなら全Points対象。
+  const apply = (p) => {
+    if (!p || !p.geometry) return;
+    const attr = p.geometry.getAttribute('position');
+    if (!attr) return;
+    const total = attr.count;
+    const count = Math.max(1, Math.floor(total * pointDensity));
+    p.geometry.setDrawRange(0, count);
+  };
+  if (points) {
+    apply(points);
+  } else {
+    pointObjects.forEach(apply);
+  }
+}
+
 // ── 立方体点群シェーダ ──────────────────────────────
 // 各点をスクリーン空間の正方形スプライトとして描画し、
 // gl_PointCoord をワールド固定の絶対軸（+X右、+Y上、+Z前）に紐づけて陰影計算する。
@@ -1790,6 +1840,9 @@ function loadTileset(id) {
       if (mat && typeof mat.dispose === 'function') mat.dispose();
     });
     pointMaterials.clear();
+    // 点群オブジェクト追跡セットもクリア
+    // (geometry/material の dispose は TilesRenderer 側で処理される)
+    pointObjects.clear();
     // 3D Tiles Renderer 本体 dispose
     // (lruCacheの全タイル content.scene の dispose は内部で行われる)
     tiles.dispose();
@@ -1830,6 +1883,20 @@ function loadTileset(id) {
         obj.material = mat;
         pointMaterials.add(mat);
         if (prev && prev.dispose) prev.dispose();
+        // 追跡セットに登録し、現在のPOINT DENSITY設定を即時反映
+        pointObjects.add(obj);
+        applyPointDensity(obj);
+      }
+    });
+  });
+
+  // dispose-model: タイルがLRUからevictされた時に呼ばれる。
+  // 追跡セットからも除去してメモリリークを防ぐ。
+  tiles.addEventListener('dispose-model', ({ scene: tileScene }) => {
+    if (!tileScene) return;
+    tileScene.traverse(obj => {
+      if (obj.isPoints) {
+        pointObjects.delete(obj);
       }
     });
   });
@@ -2098,6 +2165,18 @@ if (isTouchDevice) {
     miniVal.textContent = '20';
   }
 }
+
+// ── POINT DENSITY スライダー ──
+// 各タイルの点群を何% 描画するかを制御 (間引き)。
+// 内部値 pointDensity (0.1〜1.0) に変換し、全 Points の setDrawRange に反映。
+const densitySlider = document.getElementById('density-slider');
+const densityVal    = document.getElementById('density-val');
+densitySlider.addEventListener('input', () => {
+  const pct = parseInt(densitySlider.value, 10);
+  pointDensity = Math.max(0.01, pct / 100); // 0.10〜1.00 (UI下限10%だが念のためクランプ)
+  densityVal.textContent = String(pct);
+  applyPointDensity();
+});
 
 // ── WORLD SCALE スライダー ──
 // tiles.group のスケールを変えることで、見た目の世界の大きさを変える。
